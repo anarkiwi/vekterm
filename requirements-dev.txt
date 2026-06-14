@@ -1,0 +1,6 @@
+# Pinned dev tooling used by CI (see .github/workflows/ci.yml).
+#
+# vekterm itself is plain C99 with no library dependencies; this file exists only
+# so the lint tool is reproducible across machines and so Dependabot can keep it
+# current. Pin the same clang-format version you run locally (`make format`).
+clang-format==18.1.8
