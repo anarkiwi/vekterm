@@ -1,15 +1,9 @@
 /*
- * Output backend interface.
+ * Output backend interface (host build).
  *
- * A backend turns decoded frames into light.  The server keeps one "active"
- * frame and asks the backend to refresh it ~50 times a second (a vector display
- * has no persistence, so each frame is re-drawn until the next one arrives).
- *
- *   - vt_backend_stub   records/prints frames; needs no hardware (host, dry-run)
- *   - vt_backend_pitrex drives the Vectrex via libpitrex (built with HAVE_PITREX)
- *
- * This mirrors pyvterm's Transport split (MemoryTransport vs SerialTransport):
- * the decode pipeline never needs to know which backend is in use.
+ * A backend consumes decoded frames. The host build provides one — the stub,
+ * which reports frames without hardware — so the decode pipeline can run on a
+ * PC and in CI. The Vectrex-driving receiver is the separate baremetal build.
  */
 #ifndef VEKTERM_BACKEND_H
 #define VEKTERM_BACKEND_H
@@ -33,12 +27,13 @@ typedef struct {
     void (*shutdown)(void *ctx);
 } vt_backend;
 
-/* Always available — host builds, dry runs, and `--dry-run` on the Pi. */
+/*
+ * The host build ships only the stub backend: it decodes the protocol and
+ * reports frames, for development, CI, and inspecting a sender's stream. The
+ * deployable receiver that drives a real Vectrex is the baremetal build
+ * (src/vekterm_baremetal.c, `make baremetal`), which talks to vectrexInterface
+ * directly rather than through this interface.
+ */
 extern const vt_backend vt_backend_stub;
-
-#ifdef HAVE_PITREX
-/* Real hardware; only linked when built against libpitrex (`make pitrex`). */
-extern const vt_backend vt_backend_pitrex;
-#endif
 
 #endif /* VEKTERM_BACKEND_H */

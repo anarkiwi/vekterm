@@ -1,98 +1,73 @@
 # Deploying vekterm: a PiTrex that boots straight into the receiver
 
-The goal: power on the PiTrex and have it come up **directly into vekterm**,
-listening on a serial port, ready for a sender (pyvterm or MAME) to draw — no
-login, no manual start. This is done with a USB-CDC serial gadget plus a systemd
-service enabled at boot.
+vekterm deploys **baremetal** — there is no operating system. The Pi's firmware
+loads `kernel.img` (which *is* vekterm) and runs it directly. Power on and the
+PiTrex is immediately drawing whatever a sender streams over the serial link.
 
 ```
-power on ──▶ kernel loads dwc2 + g_serial ──▶ /dev/ttyGS0 appears
-         ──▶ systemd starts vekterm.service ──▶ vekterm reads /dev/ttyGS0
-                                                 and drives the Vectrex
+power on ──▶ Pi firmware (bootcode.bin, start.elf) loads kernel.img
+         ──▶ vekterm runs: reads the mini-UART, draws the active frame on the
+             Vectrex every refresh via libpitrex
 ```
 
 ## Prerequisites
 
-- A built PiTrex: a Raspberry Pi Zero (W/WH) seated on the PiTrex cartridge in a
+- A built PiTrex: a Raspberry Pi Zero (W/WH) on the PiTrex cartridge in a
   Vectrex, per the [PiTrex Hardware Guide][hwguide].
-- Raspberry Pi OS (Lite is fine) on the SD card, with shell access (SSH or
-  keyboard).
-- A [`gtoal/pitrex`](https://github.com/gtoal/pitrex) checkout on the Pi with
-  **`libpitrex` built** (its raspbian build). vekterm links against it.
-- This repo checked out on the Pi.
+- A microSD card.
+- **Docker** (to build the image — no local toolchain needed), or
+  `arm-none-eabi-gcc` + newlib for a local build.
+- On the sender side: a host running pyvterm and a **3.3 V** USB-to-TTL serial
+  adapter (for the UART link, below).
 
-> **Power.** When you drive the Pi from the host PC over the data USB port,
-> remove the PiTrex **POWER FROM VEC.** jumper first, as the guide describes —
-> the PC then supplies power. ([Hardware Guide][hwguide].)
-
-## Step 1 — Set up the serial link (USB gadget, recommended)
-
-The Pi Zero's *data* micro-USB port (the inner one marked **USB**, not **PWR**)
-can act as a USB-CDC serial gadget. It needs no serial adapter and meets the
-2 Mbaud nominal rate with room to spare, because USB-CDC ignores the line rate.
+## Step 1 — Build the image
 
 ```bash
-sudo deploy/setup-usb-gadget.sh
+make docker
+# -> out/kernel.img   the baremetal binary
+# -> out/vekterm.img  a flashable SD-card image (firmware + config.txt + kernel.img)
 ```
 
-That script (idempotent) does three things in the boot partition
-(`/boot/firmware` or `/boot`):
+`make docker` cross-compiles vekterm against `libpitrex` and assembles the SD
+image entirely in a container. To calibrate up front (you can also do it later),
+pass `--build-arg VEKTERM_CFLAGS='…'` — see [Calibration](#calibration).
 
-1. adds `dtoverlay=dwc2,dr_mode=peripheral` to `config.txt` — enable the USB
-   controller in gadget mode;
-2. appends `modules-load=dwc2,g_serial` to `cmdline.txt` — load the serial
-   gadget at boot, creating **`/dev/ttyGS0`** on the Pi (the host PC sees
-   **`/dev/ttyACM0`**);
-3. masks `serial-getty@ttyGS0.service` so a login console doesn't grab the port.
-
-Prefer the GPIO UART instead? See [UART alternative](#uart-alternative) below.
-
-## Step 2 — Build and install vekterm
+## Step 2 — Flash the card
 
 ```bash
-deploy/install.sh                      # PITREX_DIR defaults to /home/pi/pitrex
-# or, if your pitrex checkout is elsewhere:
-PITREX_DIR=/path/to/pitrex deploy/install.sh
+# Linux/macOS (find your card's device first; this erases it!):
+sudo dd if=out/vekterm.img of=/dev/sdX bs=4M conv=fsync
 ```
 
-`install.sh`:
+Or use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) → "Use
+custom" → `out/vekterm.img`. The image is a single bootable FAT partition; the
+extra space is unused.
 
-1. `make pitrex PITREX_DIR=…` — builds `vekterm-pitrex` linked to `libpitrex`;
-2. installs it to `/usr/local/bin/vekterm`;
-3. installs [`deploy/vekterm.service`](../deploy/vekterm.service) and
-   `systemctl enable`s it (so it starts on every boot).
+## Step 3 — Wire the serial link (UART)
 
-The service runs `vekterm --port /dev/ttyGS0 --baud 2000000`, restarts on
-failure (covering the brief window before the gadget device exists), and runs
-with `Nice=-10` so the beam-drawing loop stays steady.
+Baremetal reads the Pi's **mini-UART** (GPIO14/15). Wire the host's 3.3 V
+USB-TTL adapter to the Pi header, crossing Tx↔Rx:
 
-## Step 3 — Reboot
+| Host adapter | Pi Zero header |
+| --- | --- |
+| TX  | pin 10 = GPIO15 (RXD) |
+| RX  | pin 8  = GPIO14 (TXD) — optional, for boot diagnostics |
+| GND | pin 6  = GND |
 
-```bash
-sudo reboot
-```
+The adapter must be **3.3 V (never 5 V)** and keep up with the line rate. The
+default is **2 Mbaud** (matching pyvterm's default); a genuine FTDI FT232R or
+CP2102N handles it. If yours is flaky, rebuild for a slower, rock-solid link with
+`VEKTERM_CFLAGS='-DVT_UART_BAUD=115200'` and set pyvterm's `baudrate=115200`.
 
-On boot the gadget device appears and `vekterm.service` starts automatically.
-That's the "boots straight into the server" state.
+## Step 4 — Boot
 
-## Verify
-
-On the **Pi**:
-
-```bash
-systemctl status vekterm        # should be active (running)
-journalctl -u vekterm -f        # live log: "backend=pitrex source=/dev/ttyGS0", frame counts
-ls -l /dev/ttyGS0               # the gadget device exists
-```
-
-On the **host PC** (with the data cable to the Pi's USB port):
+Insert the card, power on. The Pi boots straight into vekterm. On the host:
 
 ```bash
-ls /dev/ttyACM0                 # Linux; macOS: /dev/tty.usbmodem*
 pip install pyvterm
 python -c "
 from pyvterm import VectorTerminal
-with VectorTerminal(port='/dev/ttyACM0') as vt:
+with VectorTerminal(port='/dev/ttyUSB0', baudrate=2000000) as vt:  # your adapter's port
     with vt.frame():
         vt.set_intensity(15)
         vt.polyline([(-200,-200),(200,-200),(200,200),(-200,200)], closed=True)
@@ -103,54 +78,58 @@ A square should appear on the Vectrex.
 
 ## Calibration
 
-Coordinate and intensity mapping depend on your Vectrex; tune them, then edit
-the `ExecStart=` line in `/etc/systemd/system/vekterm.service` to bake in the
-values (`sudo systemctl daemon-reload && sudo systemctl restart vekterm`).
+Coordinate and intensity mapping depend on your Vectrex. These are compile-time
+options; set them via `VEKTERM_CFLAGS` (Docker) or `EXTRA_CFLAGS` (local
+`make baremetal`), then re-flash.
 
-| Flag | Effect | Default |
+| Define | Meaning | Default |
 | --- | --- | --- |
-| `--min N` / `--max N` | Vectrex coords that device `0` / `4095` map to | `-2048` / `2047` |
-| `--scale N` | `v_setScale` integrator scale register | library default |
-| `--bright-shift N` | beam intensity = `brightness >> N` (0..255 → z-axis) | `1` |
+| `VT_VECTREX_MIN` / `VT_VECTREX_MAX` | Vectrex coords that device `0` / `4095` map to | `-10000` / `10000` |
+| `VT_BRIGHT_SHIFT` | beam intensity = brightness (0..255) `>> N` | `1` |
+| `VT_UART_BAUD` | serial line rate (must match the sender) | `2000000` |
+| `VT_REFRESH_HZ` | redraw rate handed to libpitrex | `50` |
 
-Drive a known frame while you tweak: `vekterm --dry-run --input frame.bin -v`
-shows exactly what was decoded before you commit to hardware values.
+```bash
+docker build --target artifacts --output type=local,dest=out \
+  --build-arg VEKTERM_CFLAGS='-DVT_VECTREX_MAX=12000 -DVT_BRIGHT_SHIFT=2' .
+```
 
-## UART alternative
+Tip: `./vekterm --dry-run --input frame.bin -v` on your PC shows exactly which
+vectors a captured stream decodes to before you commit to hardware values.
 
-If you wire a **3.3 V** USB-to-TTL adapter to the Pi header (pins 1=3V3, 6=GND,
-8=Tx/GPIO14, 10=Rx/GPIO15, crossing Tx↔Rx) instead of using the USB gadget:
+## What's on the card / how it boots
 
-1. Skip `setup-usb-gadget.sh`. Instead enable the UART and free it from the
-   login console: set `enable_uart=1` in `config.txt`, remove any
-   `console=serial0,115200` from `cmdline.txt`, and
-   `sudo systemctl disable --now serial-getty@ttyAMA0.service`.
-2. Point the service at it: change `ExecStart=` to
-   `--port /dev/serial0`, then `daemon-reload` + `restart`.
+The FAT partition holds the stock Raspberry Pi firmware plus our kernel:
 
-The adapter must be **3.3 V (never 5 V)** and sustain **≥ 2 Mbaud** — a genuine
-FTDI FT232R or CP2102N. Avoid CH340 / original CP2102 modules. (The USB gadget
-sidesteps the line-rate question entirely, which is why it's recommended.)
+| File | Purpose |
+| --- | --- |
+| `bootcode.bin`, `start.elf`, `fixup.dat` | Raspberry Pi firmware (fetched from raspberrypi/firmware) |
+| [`config.txt`](../deploy/config.txt) | GPIO setup for the VIA, pins the core clock for a stable UART |
+| `kernel.img` | vekterm itself |
+
+There is deliberately **no** Linux kernel, initramfs, or root filesystem.
+
+## Building locally (without Docker)
+
+```bash
+git clone https://github.com/gtoal/pitrex
+sudo apt-get install gcc-arm-none-eabi libnewlib-arm-none-eabi mtools fdisk
+make image PITREX_DIR=./pitrex          # -> kernel.img and vekterm.img
+```
+
+`make baremetal` runs [`deploy/patch-pitrex.sh`](../deploy/patch-pitrex.sh) on the
+checkout first — a couple of small, idempotent fixes so the upstream baremetal
+sources compile with a current `arm-none-eabi-gcc`/newlib (a `MAP_FAILED`
+fallback and missing `<stdint.h>`/`u_long` in `vectors.h`).
 
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
 | --- | --- |
-| `open /dev/ttyGS0: No such file or directory` | Gadget not up yet. Confirm `dtoverlay=dwc2` + `modules-load=dwc2,g_serial`, reboot. `Restart=always` retries meanwhile. |
-| Service flaps / `Restart` loops | Same as above, or the port is held by a getty — `systemctl mask serial-getty@ttyGS0.service`. |
-| Host never sees `/dev/ttyACM0` | Using the **PWR** port, a power-only cable, or `dr_mode` not peripheral. Use the inner **USB** port and a data cable. |
-| Permission denied on the VIA / GPIO | The service runs as `root` for hardware access; if you changed `User=`, restore it or grant GPIO access. |
-| Connects but nothing draws | Calibration: widen `--min/--max`, set `--scale`, lower `--bright-shift`. Check `journalctl -u vekterm` shows non-zero frame/vector counts. |
-| Want to test without a Vectrex | `vekterm --dry-run` (or any non-pitrex build) decodes and reports without touching hardware. |
-
-## Updating / uninstalling
-
-```bash
-git pull && deploy/install.sh && sudo systemctl restart vekterm   # update
-
-sudo systemctl disable --now vekterm                              # uninstall
-sudo rm /etc/systemd/system/vekterm.service /usr/local/bin/vekterm
-sudo systemctl daemon-reload
-```
+| Nothing happens at all | Re-seat the card; confirm `out/vekterm.img` flashed cleanly. Connect the host RX to Pi TX (GPIO14) to watch the "PiTrex starting…" boot message. |
+| Boots but draws nothing | Calibration: widen `VT_VECTREX_MAX`, lower `VT_BRIGHT_SHIFT`. Confirm the sender is connected to **GPIO15 (RX)** and sharing **GND**. |
+| Garbled / no vectors over serial | Baud mismatch or a marginal adapter at 2 Mbaud. Rebuild with `-DVT_UART_BAUD=115200` and set the sender to 115200. |
+| Image won't boot on a Pi 2/3/Zero 2 | This targets the **Pi Zero / Zero W (BCM2835, ARMv6)**. Other models need different firmware/flags. |
+| Want to test without a Vectrex | `./vekterm --dry-run` (host build) decodes and reports without any hardware. |
 
 [hwguide]: http://www.ombertech.com/cnk/pitrex/wiki/index.php?wiki=Developer_Release_HW_Guide

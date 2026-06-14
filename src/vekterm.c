@@ -232,15 +232,11 @@ int main(int argc, char **argv)
         return run_selftest(&opt);
     }
 
-    /* Pick a backend: real hardware unless asked to stay off it. */
-#ifdef HAVE_PITREX
-    be = dry_run ? &vt_backend_stub : &vt_backend_pitrex;
-#else
-    if (!dry_run) {
-        /* No libpitrex in this build; the stub is the only backend. */
-    }
+    /* The host build only has the stub backend (it decodes and reports; it
+     * never drives hardware). --dry-run is accepted for compatibility and is
+     * implied here; the deployable receiver is the baremetal build. */
+    (void)dry_run;
     be = &vt_backend_stub;
-#endif
 
     /* Open the input source. */
     if (input != NULL) {

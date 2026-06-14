@@ -3,21 +3,22 @@
 [![CI](https://github.com/anarkiwi/vekterm/actions/workflows/ci.yml/badge.svg)](https://github.com/anarkiwi/vekterm/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**The PiTrex-side receiver for the USB-DVG / *vecterm* serial protocol — draw
-vectors streamed over a serial port onto a real [Vectrex](https://en.wikipedia.org/wiki/Vectrex).**
+**A baremetal PiTrex receiver for the USB-DVG / *vecterm* serial protocol — flash
+an SD card, power on, and the Pi boots straight into drawing vectors streamed
+over a serial port onto a real [Vectrex](https://en.wikipedia.org/wiki/Vectrex).**
 
 vekterm is the **device half** of the protocol that
-[pyvterm](https://github.com/anarkiwi/pyvterm) (and a custom
+[pyvterm](https://github.com/anarkiwi/pyvterm) (or a custom
 [MAME](https://www.mamedev.org/) build) speaks on the **sending** half. It runs
-on the [PiTrex](https://github.com/gtoal/pitrex) — a Raspberry Pi Zero riding on
-a Vectrex — reads command words off a serial link, decodes them into vectors,
-and drives the Vectrex beam through the PiTrex's `libpitrex` (the 6522 VIA).
+**baremetal** on the [PiTrex](https://github.com/gtoal/pitrex) — no operating
+system — reading command words off the serial UART, decoding them into vectors,
+and driving the Vectrex beam through the PiTrex's `libpitrex` (the 6522 VIA).
 
 ```
 ┌─────────────────────────┐   USB-DVG / vecterm    ┌──────────────────────┐   GPIO/VIA   ┌─────────┐
-│  pyvterm  ── or ──        │   protocol over a      │  vekterm  on the      │  6522 VIA    │ Vectrex │
-│  a custom MAME build      │ ─────────────────────▶ │  PiTrex (this repo)   │ ───────────▶ │ CRT     │
-│  (the sender)             │   serial @ 2 Mbaud     │  decodes + draws      │              │ (beam)  │
+│  pyvterm  ── or ──        │   protocol over a      │  vekterm (baremetal)  │  6522 VIA    │ Vectrex │
+│  a custom MAME build      │ ─────────────────────▶ │  on the PiTrex        │ ───────────▶ │ CRT     │
+│  (the sender)             │   serial UART          │  decodes + draws      │              │ (beam)  │
 └─────────────────────────┘                         └──────────────────────┘              └─────────┘
 ```
 
@@ -27,100 +28,80 @@ pyvterm's exact frame bytes (the worked example in
 
 ## How it's built
 
-The codebase is split so that everything except the final hardware draw is pure,
-portable C99 that builds and is unit-tested on any machine — the same separation
-pyvterm draws between its pure `protocol`/`frame` modules and its `Transport`s.
+The protocol decode is pure, portable C99 that builds and is unit-tested on any
+machine; only the I/O is hardware-specific. The deployable artifact is a
+baremetal `kernel.img`.
 
 | Module | Role | Pure? |
 | --- | --- | --- |
-| [`src/protocol.c`](src/protocol.c) | decode/encode 32-bit command words, colour & coordinate maths | ✅ host-testable |
-| [`src/frame.c`](src/frame.c) | streaming parser: bytes → words → a frame of vectors (handles split reads, `MAX_PIPELINE`) | ✅ host-testable |
-| [`src/serial.c`](src/serial.c) | open the serial port (raw 8N1, non-blocking) | POSIX |
-| [`src/backend_stub.c`](src/backend_stub.c) | report frames; no hardware (host, CI, `--dry-run`) | ✅ |
-| [`src/backend_pitrex.c`](src/backend_pitrex.c) | draw frames on the Vectrex via `libpitrex` | needs hardware |
-| [`src/vekterm.c`](src/vekterm.c) | CLI, the read→decode→refresh loop | — |
+| [`src/protocol.c`](src/protocol.c) | decode/encode 32-bit command words, colour & coordinate maths | ✅ host-tested |
+| [`src/frame.c`](src/frame.c) | streaming parser: bytes → words → a frame of vectors (split reads, `MAX_PIPELINE`) | ✅ host-tested |
+| [`src/vekterm_baremetal.c`](src/vekterm_baremetal.c) | **the deployable app**: read the mini-UART, draw via `v_WaitRecal` + `v_directDraw32` | runs on the Pi |
+| [`src/vekterm.c`](src/vekterm.c) + [`serial.c`](src/serial.c) + [`backend_stub.c`](src/backend_stub.c) | a host dev tool that decodes + reports a stream (CI, `--dry-run`) | ✅ |
 
-## Build & test (no hardware needed)
+## Build & test the decoder (no hardware)
 
 ```bash
-make          # builds ./vekterm with the stub backend
-make test     # builds and runs the unit tests
-make check    # tests + a syntax check of the pitrex backend
+make test        # run the unit tests
+make             # build ./vekterm, the host decode/report tool
 ./vekterm --selftest
 ```
 
-`make` needs only a C99 compiler and GNU make. Decode a captured frame without a
-Vectrex anywhere in sight:
+Decode a captured frame without a Vectrex anywhere in sight:
 
 ```bash
 # A single white line (the docs/PROTOCOL.md worked example) as raw bytes:
 printf '\x80\x00\x01\x90\x20\xF0\xF0\xF0\x52\x00\x48\x02\x42\x64\x48\x02\x60\x00\x00\x05\x00\x00\x00\x00' > frame.bin
-./vekterm --dry-run --input frame.bin --once --verbose
+./vekterm --dry-run --input frame.bin --verbose
 # frame 1: 1 vector(s), beam_travel=400
 #     (2049,2050)->(2449,2050) z=240
 ```
 
-`--dry-run` (and any build without `libpitrex`) uses the stub backend, so the
-whole decode pipeline runs and reports on an ordinary computer. Pipe straight
-from a sender, too: `python my_sender.py | ./vekterm --dry-run --input -`.
+## Build the deployable artifacts (in Docker)
 
-## Run in Docker
-
-A multi-stage [`Dockerfile`](Dockerfile) compiles the receiver, runs the unit
-tests, and ships a statically linked binary in a bare `scratch` image (~700 kB):
+Everything — the cross-compile against `libpitrex` and the SD image — happens in
+a container, so you need no local ARM toolchain:
 
 ```bash
-make docker                              # or: docker build -t vekterm .
-docker run --rm vekterm --selftest
-printf '\x80\x00\x01\x90\x20\xF0\xF0\xF0\x52\x00\x48\x02\x42\x64\x48\x02\x60\x00\x00\x05\x00\x00\x00\x00' \
-  | docker run --rm -i vekterm --dry-run --input - --verbose
+make docker
+# -> out/kernel.img   the baremetal binary (boots straight into vekterm)
+# -> out/vekterm.img  a flashable SD-card image (firmware + config + kernel)
 ```
 
-The image builds the hardware-independent (stub) server — ideal for CI, decoding
-captured frames, and piping from a sender. Driving a real Vectrex needs libpitrex
-and GPIO access on the Pi itself (see [Deploy](#deploy-boot-straight-into-the-receiver)),
-which is the systemd path below, not a container.
-
-## Build for the PiTrex (drives a real Vectrex)
-
-On the Pi, with a [gtoal/pitrex](https://github.com/gtoal/pitrex) checkout whose
-`libpitrex` is built:
+Under the hood the [`Dockerfile`](Dockerfile) clones gtoal/pitrex, cross-compiles
+the baremetal receiver with `arm-none-eabi-gcc` against `libpitrex`
+([`make baremetal`](Makefile)), and assembles a bootable FAT image with
+[`deploy/build-image.sh`](deploy/build-image.sh) (unprivileged: `sfdisk` +
+`mtools`, no loop mounts). Calibrate for your display without editing source:
 
 ```bash
-make pitrex PITREX_DIR=/home/pi/pitrex   # produces ./vekterm-pitrex
-sudo ./vekterm-pitrex --port /dev/ttyGS0
+docker build --target artifacts --output type=local,dest=out \
+  --build-arg VEKTERM_CFLAGS='-DVT_VECTREX_MAX=12000 -DVT_UART_BAUD=115200' .
 ```
 
-The pitrex backend calls the same primitives pyvterm's protocol notes reference
-— `v_WaitRecal` (pace each 50 Hz refresh and re-zero the beam) and
-`v_directDraw32` (draw one absolute vector at a given intensity) — re-drawing the
-active frame every refresh, because a vector display has no persistence.
+(Building locally instead of in Docker? `make baremetal PITREX_DIR=/path/to/pitrex`
+needs `arm-none-eabi-gcc` + newlib; see [`docs/DEPLOY.md`](docs/DEPLOY.md).)
 
-Coordinate and brightness mapping are tunable for your hardware:
-`--min/--max` set the Vectrex range device `0..4095` maps onto, `--scale` sets
-the integrator scale register, and `--bright-shift` scales 0..255 intensity onto
-the Vectrex z-axis. See `./vekterm --help`.
-
-## Deploy: boot straight into the receiver
-
-Two scripts in [`deploy/`](deploy/) turn a Pi into an appliance that powers on
-and immediately starts receiving:
+## Deploy: a PiTrex that boots into the receiver
 
 ```bash
-sudo deploy/setup-usb-gadget.sh   # present /dev/ttyGS0 (USB-CDC serial gadget)
-deploy/install.sh                 # build, install /usr/local/bin/vekterm + service
-sudo reboot
+make docker
+# flash out/vekterm.img to a microSD (e.g. with Raspberry Pi Imager or):
+#   sudo dd if=out/vekterm.img of=/dev/sdX bs=4M conv=fsync
 ```
 
-After the reboot the host PC sees `/dev/ttyACM0`; point pyvterm at it and draw.
-The full walk-through (USB-gadget vs UART wiring, the systemd unit, calibration,
-and troubleshooting) is in [`docs/DEPLOY.md`](docs/DEPLOY.md).
+Put the card in the PiTrex's Pi, wire the sender to the Pi's UART (GPIO14/15 at
+3.3 V), and power on — it boots straight into vekterm, no login, no OS. Point
+pyvterm at the other end of that serial link and draw. The full walk-through
+(UART wiring, the `config.txt`, calibration, and how it boots) is in
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Documentation
 
 - [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — the wire protocol from the receiver's
   point of view, with the byte-for-byte worked example the tests assert.
-- [`docs/DEPLOY.md`](docs/DEPLOY.md) — deploy a PiTrex that boots into vekterm.
+- [`docs/DEPLOY.md`](docs/DEPLOY.md) — build, flash, wire, and boot a PiTrex into
+  vekterm.
 
 ## Credits
 

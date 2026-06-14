@@ -44,15 +44,13 @@ jobs:
         run: ${{ matrix.cc }} --version
       - name: unit tests
         run: make test CC=${{ matrix.cc }}
-      - name: pitrex backend syntax check
-        run: make pitrex-check CC=${{ matrix.cc }}
 
-  build:
-    name: Build & smoke test
+  host:
+    name: Host tool & smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: build server (stub backend)
+      - name: build host tool (stub backend)
         run: make
       - name: selftest
         run: ./vekterm --selftest
@@ -61,16 +59,22 @@ jobs:
           printf '\x80\x00\x01\x90\x20\xF0\xF0\xF0\x52\x00\x48\x02\x42\x64\x48\x02\x60\x00\x00\x05\x00\x00\x00\x00' > frame.bin
           ./vekterm --dry-run --input frame.bin --once --verbose
 
-  docker:
-    name: Docker image
+  image:
+    name: Baremetal image (Docker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: build image (compiles + tests inside Docker)
-        run: docker build -t vekterm:ci .
-      - name: selftest in container
-        run: docker run --rm vekterm:ci --selftest
-      - name: decode a frame via stdin
+      - name: build kernel.img + vekterm.img in Docker
+        run: make docker
+      - name: verify artifacts
         run: |
-          printf '\x80\x00\x01\x90\x20\xF0\xF0\xF0\x52\x00\x48\x02\x42\x64\x48\x02\x60\x00\x00\x05\x00\x00\x00\x00' \
-            | docker run --rm -i vekterm:ci --dry-run --input - --once
+          test -s out/kernel.img
+          test -s out/vekterm.img
+          file out/vekterm.img | grep -q 'DOS/MBR boot sector'
+          ls -l out/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vekterm-image
+          path: |
+            out/kernel.img
+            out/vekterm.img

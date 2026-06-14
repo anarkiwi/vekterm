@@ -1,7 +1,10 @@
-# Keep the build context small and reproducible.
+# Keep the build context small; the image clones pitrex and builds fresh.
 .git
 .github
 .claude
+
+# A local pitrex checkout (the image clones its own)
+pitrex/
 
 # Build artifacts (rebuilt inside the image)
 *.o
@@ -10,16 +13,19 @@
 *.so
 *.dylib
 *.dSYM/
-/vekterm
-/vekterm-pitrex
+build.baremetal/
+vekterm
+kernel.img
+vekterm.img
+out/
 /tests/test_protocol
 /tests/test_frame
 /tests/test_coord
 
-# Scratch / local cruft
+# Local cruft
 *.bin
-.venv/
-__pycache__/
 .DS_Store
 *.swp
 *~
+.venv/
+__pycache__/
