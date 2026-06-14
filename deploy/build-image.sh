@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Assemble a flashable Raspberry Pi SD-card image that boots straight into
+# vekterm (baremetal — no operating system).
+#
+# Fully unprivileged: it partitions a plain file with sfdisk and populates a FAT
+# partition with mtools, so there are no loop mounts and no root required. That
+# makes it safe to run inside Docker or CI.
+#
+#   deploy/build-image.sh kernel.img vekterm.img
+#
+# Env overrides: RPI_FW_REF (firmware branch/tag, default "stable"),
+# IMG_SIZE_MB (default 64).
+set -euo pipefail
+
+KERNEL="${1:?usage: build-image.sh <kernel.img> <out.img>}"
+OUT="${2:?usage: build-image.sh <kernel.img> <out.img>}"
+
+# Raspberry Pi Zero is a BCM2835: bootcode.bin + start.elf + fixup.dat.
+RPI_FW_REF="${RPI_FW_REF:-stable}"
+FW_BASE="https://github.com/raspberrypi/firmware/raw/${RPI_FW_REF}/boot"
+FW_FILES="bootcode.bin start.elf fixup.dat"
+
+IMG_SIZE_MB="${IMG_SIZE_MB:-64}"
+PART_OFFSET_SECTORS=2048 # 1 MiB
+PART_OFFSET=$((PART_OFFSET_SECTORS * 512))
+
+here="$(cd "$(dirname "$0")" && pwd)"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+echo "==> Fetching Raspberry Pi firmware (${RPI_FW_REF})"
+for f in $FW_FILES; do
+	curl -fsSL "$FW_BASE/$f" -o "$work/$f"
+done
+
+echo "==> Staging boot files"
+cp "$KERNEL" "$work/kernel.img"
+cp "$here/config.txt" "$work/config.txt"
+
+echo "==> Creating ${IMG_SIZE_MB}MiB image with a bootable FAT partition"
+rm -f "$OUT"
+truncate -s "${IMG_SIZE_MB}M" "$OUT"
+sfdisk "$OUT" >/dev/null <<EOF
+label: dos
+start=${PART_OFFSET_SECTORS}, type=c, bootable
+EOF
+
+echo "==> Formatting + populating the partition (mtools, unprivileged)"
+mformat -i "$OUT@@${PART_OFFSET}" -F -v VEKTERM ::
+mcopy -i "$OUT@@${PART_OFFSET}" \
+	"$work/bootcode.bin" "$work/start.elf" "$work/fixup.dat" \
+	"$work/config.txt" "$work/kernel.img" ::/
+# vectrexInterface mounts the SD on v_init(); give it the dirs it may look for.
+mmd -i "$OUT@@${PART_OFFSET}" ::/settings ::/ini 2>/dev/null || true
+
+echo "==> Done: $OUT"
+mdir -i "$OUT@@${PART_OFFSET}" ::/

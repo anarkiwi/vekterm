@@ -5,21 +5,26 @@
 *.so
 *.dylib
 *.dSYM/
+build.baremetal/
 
-# Server binaries
+# Host tool
 /vekterm
-/vekterm-pitrex
+
+# Deployable artifacts
+/kernel.img
+/vekterm.img
+/out/
 
 # Compiled unit tests (the .c sources are tracked)
 /tests/test_protocol
 /tests/test_frame
 /tests/test_coord
 
-# Smoke-test scratch
-frame.bin
-*.bin
+# A local pitrex checkout used by `make baremetal PITREX_DIR=./pitrex`
+/pitrex/
 
-# Editor / OS cruft
+# Scratch / local cruft
+*.bin
 .DS_Store
 *.swp
 *~

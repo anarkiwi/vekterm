@@ -16,14 +16,16 @@ exactly so the unit tests can decode a sender's bytes and assert the result.
 
 | Setting | Value |
 | --- | --- |
-| Device (on the Pi) | `/dev/ttyGS0` (USB-CDC gadget) or `/dev/serial0` (UART) |
-| Nominal baud | `2000000` (2 Mbaud); USB-CDC ignores the line rate |
-| Framing | 8 data bits, no parity, 1 stop bit, no flow control, raw mode |
+| Device | the Pi's **mini-UART** (GPIO14/15) — vekterm runs baremetal, no OS |
+| Baud | `2000000` (2 Mbaud) by default; compile-time `VT_UART_BAUD` |
+| Framing | 8 data bits, no parity, 1 stop bit, no flow control |
 
-vekterm configures the port this way in [`src/serial.c`](../src/serial.c) and
-reads it non-blocking, feeding bytes to the parser as they arrive. A command
-word may be split across reads; the parser reassembles whole words before
-acting (asserted by `test_words_split_across_reads`).
+The baremetal app ([`src/vekterm_baremetal.c`](../src/vekterm_baremetal.c)) drains
+the mini-UART (`RPI_AuxMiniUartReadPending` / `RPI_AuxMiniUartRead`) and feeds
+bytes to the parser as they arrive. A command word may be split across reads; the
+parser reassembles whole words before acting (asserted by
+`test_words_split_across_reads`). The host dev tool reads a serial port or a file
+the same way via [`src/serial.c`](../src/serial.c).
 
 ## 2. Command words
 

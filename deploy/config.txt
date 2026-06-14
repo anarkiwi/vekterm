@@ -1,0 +1,18 @@
+# PiTrex baremetal boot configuration for vekterm.
+#
+# vekterm runs as kernel.img — the Pi boots straight into it, with no operating
+# system. These GPIO lines are from gtoal/pitrex's README-BAREMETAL and stop the
+# firmware bringing pins up in a mode that could damage the VIA interface.
+gpio=0-5,16-24,26-29=ip
+gpio=6-13,25=op
+gpio=24=np
+dtoverlay=dwc2,dr_mode=host
+
+# Pin the VPU/core clock so the mini-UART baud is stable: the baremetal runtime
+# assumes a 400 MHz core (its -DMHZ1000 path), which is the Pi Zero default.
+# Do NOT add enable_uart=1 without this — enable_uart would force core_freq=250
+# and corrupt the serial link.
+core_freq=400
+
+# Pi Zero is 32-bit ARMv6.
+arm_64bit=0
