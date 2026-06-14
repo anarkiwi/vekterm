@@ -68,9 +68,10 @@ make docker
 # -> out/vekterm.img  a flashable SD-card image (firmware + config + kernel)
 ```
 
-Under the hood the [`Dockerfile`](Dockerfile) clones gtoal/pitrex, cross-compiles
-the baremetal receiver with `arm-none-eabi-gcc` against `libpitrex`
-([`make baremetal`](Makefile)), and assembles a bootable FAT image with
+Under the hood the [`Dockerfile`](Dockerfile) cross-compiles the baremetal
+receiver with `arm-none-eabi-gcc` against the **vendored** libpitrex
+([`third_party/libpitrex`](third_party/libpitrex), so there is no external
+checkout — [`make baremetal`](Makefile)), and assembles a bootable FAT image with
 [`deploy/build-image.sh`](deploy/build-image.sh) (unprivileged: `sfdisk` +
 `mtools`, no loop mounts). Calibrate for your display without editing source:
 
@@ -79,8 +80,9 @@ docker build --target artifacts --output type=local,dest=out \
   --build-arg VEKTERM_CFLAGS='-DVT_VECTREX_MAX=12000 -DVT_UART_BAUD=115200' .
 ```
 
-(Building locally instead of in Docker? `make baremetal PITREX_DIR=/path/to/pitrex`
-needs `arm-none-eabi-gcc` + newlib; see [`docs/DEPLOY.md`](docs/DEPLOY.md).)
+(Building locally instead of in Docker? `make baremetal` needs `arm-none-eabi-gcc`
++ newlib; libpitrex is vendored, so no checkout is required. See
+[`docs/DEPLOY.md`](docs/DEPLOY.md).)
 
 ## Deploy: a PiTrex that boots into the receiver
 

@@ -1,30 +1,17 @@
-# Build artifacts
-*.o
-*.obj
-*.a
-*.so
-*.dylib
-*.dSYM/
+# Build outputs (note: third_party/libpitrex/*.a are vendored and tracked)
 build.baremetal/
-
-# Host tool
 /vekterm
-
-# Deployable artifacts
 /kernel.img
 /vekterm.img
 /out/
+/frame.bin
 
 # Compiled unit tests (the .c sources are tracked)
 /tests/test_protocol
 /tests/test_frame
 /tests/test_coord
 
-# A local pitrex checkout used by `make baremetal PITREX_DIR=./pitrex`
-/pitrex/
-
-# Scratch / local cruft
-*.bin
+# OS / editor cruft
 .DS_Store
 *.swp
 *~
