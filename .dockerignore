@@ -1,29 +1,21 @@
-# Keep the build context small; the image clones pitrex and builds fresh.
+# Keep the build context small. NOTE: third_party/libpitrex is vendored and must
+# be sent to the build, so do not exclude it (or *.a / *.o globally).
 .git
 .github
 .claude
 
-# A local pitrex checkout (the image clones its own)
-pitrex/
-
-# Build artifacts (rebuilt inside the image)
-*.o
-*.obj
-*.a
-*.so
-*.dylib
-*.dSYM/
+# Build outputs (rebuilt inside the image)
 build.baremetal/
-vekterm
-kernel.img
-vekterm.img
 out/
+/vekterm
+/kernel.img
+/vekterm.img
+/frame.bin
 /tests/test_protocol
 /tests/test_frame
 /tests/test_coord
 
 # Local cruft
-*.bin
 .DS_Store
 *.swp
 *~

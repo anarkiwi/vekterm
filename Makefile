@@ -7,12 +7,13 @@
 #   make format     reformat sources with clang-format
 #   make docker     build everything in Docker and export kernel.img + vekterm.img
 #
-# PiTrex (the deployable artifacts) — needs arm-none-eabi-gcc + a pitrex checkout:
+# PiTrex (the deployable artifacts) — needs arm-none-eabi-gcc + newlib:
 #   make baremetal  build ./kernel.img (boots straight into vekterm, no Linux)
 #   make image      build ./vekterm.img (a flashable SD card image)
 #
-# `make docker` runs the baremetal + image build for you in a container, so you
-# don't need the cross-toolchain locally. See docs/DEPLOY.md.
+# libpitrex is vendored in third_party/libpitrex (no external checkout), so the
+# baremetal build is self-contained. `make docker` runs it for you. See
+# docs/DEPLOY.md.
 
 # ---- host toolchain ------------------------------------------------------
 CC      ?= cc
@@ -32,7 +33,7 @@ HOST_HDR := src/serial.h src/backend.h $(CORE_HDR)
 
 TESTS := tests/test_protocol tests/test_frame tests/test_coord
 
-.PHONY: all test check clean format format-check docker baremetal image bm-pitrexlib help
+.PHONY: all test check clean format format-check docker baremetal image help
 
 all: vekterm
 
@@ -61,101 +62,83 @@ format:
 format-check:
 	clang-format --dry-run --Werror $(FORMAT_FILES)
 
-# Build everything in Docker and export the artifacts to ./out (no local
-# cross-toolchain needed).
+# Build everything in Docker and export the artifacts to ./out.
 docker:
 	docker build --target artifacts --output type=local,dest=out .
 	@echo "exported out/kernel.img and out/vekterm.img"
 
 # ---- baremetal build (the deployable PiTrex kernel image) ----------------
-# Mirrors gtoal/pitrex's hello_world/Makefile.baremetal: build the pitrex
-# library objects via the pitrex tree's own makefiles, compile the baremetal
-# runtime + the vekterm core + the baremetal entry point, link with the pitrex
-# baremetal libs + linker script, then objcopy to a raw kernel image.
-PITREX_DIR     ?= ./pitrex
+# Self-contained: compiles vekterm + the vendored libpitrex sources with
+# arm-none-eabi-gcc and links the vendored pitrex archives + linker script,
+# then objcopy to a raw kernel image. No external checkout, no build-time
+# patching (fixes are baked into third_party/libpitrex; see its NOTICE.md).
+VENDOR         := third_party/libpitrex
 BM_CC          ?= arm-none-eabi-gcc
 BM_OBJCOPY     ?= arm-none-eabi-objcopy
 
-BM_LIB_DIR     := $(PITREX_DIR)/pitrex/baremetal
-BM_PITREX_DIR  := $(PITREX_DIR)/pitrex/pitrex
-BM_VECTREX_DIR := $(PITREX_DIR)/pitrex/vectrex
+BM_PITREX_DIR  := $(VENDOR)/pitrex
+BM_VECTREX_DIR := $(VENDOR)/vectrex
+BM_LIB_DIR     := $(VENDOR)/baremetal
 BMB            := build.baremetal/
 
-# -fcommon: the pitrex sources predate GCC 10 and rely on tentative-definition
-# merging (shared globals like errno/settings across files); GCC now defaults to
-# -fno-common, so restore the old behaviour.
 # EXTRA_CFLAGS lets you calibrate without editing source, e.g.:
 #   make baremetal EXTRA_CFLAGS='-DVT_VECTREX_MAX=12000 -DVT_UART_BAUD=115200'
+# -fcommon: the pitrex sources predate GCC 10 and rely on tentative-definition
+# merging (shared globals like errno/settings); GCC now defaults to -fno-common.
 EXTRA_CFLAGS ?=
+# SETTINGS_DIR is where vectrexInterface reads/writes settings on the SD root
+# (build-image.sh creates this dir); upstream passes it via its makefile.
 BM_CFLAGS := -Ofast -Isrc -fcommon \
-	-I$(PITREX_DIR)/pitrex -I$(BM_LIB_DIR)/lib2835 -I$(BM_LIB_DIR) -L$(BM_LIB_DIR) \
+	-I$(VENDOR) -I$(BM_LIB_DIR)/lib2835 -I$(BM_LIB_DIR) -L$(BM_LIB_DIR) \
 	-mfloat-abi=hard -nostartfiles -mfpu=vfp -march=armv6zk -mtune=arm1176jzf-s \
 	-DRPI0 -DFREESTANDING -DPITREX_DEBUG -DMHZ1000 -DLOADER_START=0x4000000 \
+	-DSETTINGS_DIR='"settings"' \
 	$(EXTRA_CFLAGS)
 
 # Newlib's default syscall stubs (_kill, _getpid, ...) for symbols cstubs.c
-# doesn't provide. Use the specs file so the driver inserts libnosys after libc
-# (link order matters); cstubs.o still wins for _write/_sbrk.
+# doesn't provide; the driver inserts libnosys after libc (link order matters).
 BM_SYSLIBS := --specs=nosys.specs
 
-# pitrex library objects, built by the pitrex tree's own baremetal makefiles.
-BM_LIB_OBJS := \
-	$(BM_PITREX_DIR)/$(BMB)bcm2835.o \
-	$(BM_PITREX_DIR)/$(BMB)pitrexio-gpio.o \
-	$(BM_VECTREX_DIR)/$(BMB)vectrexInterface.o \
-	$(BM_VECTREX_DIR)/$(BMB)osWrapper.o \
-	$(BM_VECTREX_DIR)/$(BMB)baremetalUtil.o
-
-# Baremetal runtime/loader objects. We compile these ourselves: the upstream
-# piTrexBoot Makefile compiles the C files with -D__ASSEMBLY__, which hides the
-# libc type declarations on a current toolchain. Only the .S is real assembly.
-BM_LOADER_C    := bareMetalMain cstubs rpi-armtimer rpi-aux rpi-gpio rpi-interrupts rpi-systimer
-BM_LOADER_OBJS := $(addprefix $(BMB), $(addsuffix .o, $(BM_LOADER_C)))
-
-# vekterm's own objects: the pure core + the baremetal entry point.
-BM_APP      := protocol frame vekterm_baremetal
-BM_APP_OBJS := $(addprefix $(BMB), $(addsuffix .o, $(BM_APP)))
-
+# Prebuilt pitrex archives (FatFs, bcm2835, the baremetal HAL).
 BM_LIBS := -lm -lff12c -ldebug -lhal -lutils -lconsole -lff12c -lbob -li2c -lbcm2835 -larm
+
+# Sources to compile, grouped by directory.
+BM_PITREX_C  := bcm2835 pitrexio-gpio
+BM_VECTREX_C := vectrexInterface osWrapper baremetalUtil
+# The baremetal runtime: C files compiled as C (only baremetalEntry.S is asm).
+BM_LOADER_C  := bareMetalMain cstubs rpi-armtimer rpi-aux rpi-gpio rpi-interrupts rpi-systimer
+BM_APP       := protocol frame vekterm_baremetal
+
+BM_PITREX_OBJS  := $(addprefix $(BMB), $(addsuffix .o, $(BM_PITREX_C)))
+BM_VECTREX_OBJS := $(addprefix $(BMB), $(addsuffix .o, $(BM_VECTREX_C)))
+BM_LOADER_OBJS  := $(addprefix $(BMB), $(addsuffix .o, $(BM_LOADER_C)))
+BM_APP_OBJS     := $(addprefix $(BMB), $(addsuffix .o, $(BM_APP)))
+BM_ALL_OBJS := $(BMB)baremetalEntry.o $(BM_LOADER_OBJS) $(BM_PITREX_OBJS) \
+	$(BM_VECTREX_OBJS) $(BM_APP_OBJS)
 
 baremetal: kernel.img
 
 $(BMB):
 	mkdir -p $(BMB)
 
-# Patch the pitrex checkout once (idempotent) so it builds with a current
-# arm-none-eabi-gcc; the stamp makes every object depend on "patched".
-$(BMB)patch.stamp: deploy/patch-pitrex.sh | $(BMB)
-	@test -d $(BM_VECTREX_DIR) || { \
-		echo "PITREX_DIR=$(PITREX_DIR) is not a pitrex checkout."; \
-		echo "Clone https://github.com/gtoal/pitrex there, or use 'make docker'."; \
-		exit 1; }
-	sh deploy/patch-pitrex.sh $(PITREX_DIR)
-	touch $@
-
-# pitrex library objects via the pitrex tree's own makefiles. Inject -fcommon
-# through CC since their makefiles hardcode CFLAGS.
-bm-pitrexlib: $(BMB)patch.stamp
-	$(MAKE) -C $(BM_PITREX_DIR) -f Makefile.baremetal CC='$(BM_CC) -fcommon' all
-	$(MAKE) -C $(BM_VECTREX_DIR) -f Makefile.baremetal CC='$(BM_CC) -fcommon' all
-
-# Loader C files: compiled as C (no -D__ASSEMBLY__).
-$(BM_LOADER_OBJS): $(BMB)%.o: $(BM_LIB_DIR)/%.c $(BMB)patch.stamp | $(BMB)
+$(BM_PITREX_OBJS): $(BMB)%.o: $(BM_PITREX_DIR)/%.c | $(BMB)
 	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
 
-# The one genuine assembly source.
-$(BMB)baremetalEntry.o: $(BM_LIB_DIR)/baremetalEntry.S | $(BMB)
-	$(BM_CC) $(BM_CFLAGS) -D__ASSEMBLY__ -c $< -o $@
+$(BM_VECTREX_OBJS): $(BMB)%.o: $(BM_VECTREX_DIR)/%.c | $(BMB)
+	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
 
-# vekterm objects.
+$(BM_LOADER_OBJS): $(BMB)%.o: $(BM_LIB_DIR)/%.c | $(BMB)
+	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
+
 $(BM_APP_OBJS): $(BMB)%.o: src/%.c $(CORE_HDR) | $(BMB)
 	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
 
-kernel.img: bm-pitrexlib $(BMB)baremetalEntry.o $(BM_LOADER_OBJS) $(BM_APP_OBJS)
+$(BMB)baremetalEntry.o: $(BM_LIB_DIR)/baremetalEntry.S | $(BMB)
+	$(BM_CC) $(BM_CFLAGS) -D__ASSEMBLY__ -c $< -o $@
+
+kernel.img: $(BM_ALL_OBJS)
 	$(BM_CC) $(BM_CFLAGS) -o $(BMB)vekterm.elf \
-		$(BMB)baremetalEntry.o $(BM_LOADER_OBJS) \
-		$(BM_LIB_OBJS) \
-		$(BM_APP_OBJS) \
+		$(BM_ALL_OBJS) \
 		$(BM_LIBS) $(BM_SYSLIBS) $(BM_LIB_DIR)/linkerHeapDefBoot.ld
 	$(BM_OBJCOPY) $(BMB)vekterm.elf -O binary kernel.img
 	@echo "built kernel.img ($$(wc -c < kernel.img) bytes)"

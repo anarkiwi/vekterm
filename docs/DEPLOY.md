@@ -111,16 +111,20 @@ There is deliberately **no** Linux kernel, initramfs, or root filesystem.
 
 ## Building locally (without Docker)
 
+libpitrex is vendored in [`third_party/libpitrex`](../third_party/libpitrex), so
+no checkout is needed:
+
 ```bash
-git clone https://github.com/gtoal/pitrex
 sudo apt-get install gcc-arm-none-eabi libnewlib-arm-none-eabi mtools fdisk
-make image PITREX_DIR=./pitrex          # -> kernel.img and vekterm.img
+make image          # -> kernel.img and vekterm.img
 ```
 
-`make baremetal` runs [`deploy/patch-pitrex.sh`](../deploy/patch-pitrex.sh) on the
-checkout first — a couple of small, idempotent fixes so the upstream baremetal
-sources compile with a current `arm-none-eabi-gcc`/newlib (a `MAP_FAILED`
-fallback and missing `<stdint.h>`/`u_long` in `vectors.h`).
+The vendored sources carry small, baked-in fixes so they compile with a current
+`arm-none-eabi-gcc`/newlib (a `MAP_FAILED` fallback and missing
+`<stdint.h>`/`u_long` in `vectors.h`); the toolchain-compatibility flags
+(`-fcommon`, `--specs=nosys.specs`) live in the `Makefile`. See
+[`third_party/libpitrex/NOTICE.md`](../third_party/libpitrex/NOTICE.md) for
+provenance and licensing.
 
 ## Troubleshooting
 
