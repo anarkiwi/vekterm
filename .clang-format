@@ -1,0 +1,14 @@
+# Formatting for vekterm. Pin the same clang-format version in CI (see
+# .github/workflows/ci.yml) so `make format-check` is deterministic.
+---
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Linux
+IndentCaseLabels: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Right
+SortIncludes: CaseInsensitive

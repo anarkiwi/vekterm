@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: check formatting
+        run: make format-check
+
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.cc }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, cc: gcc }
+          - { os: ubuntu-latest, cc: clang }
+          - { os: macos-latest, cc: clang }
+    steps:
+      - uses: actions/checkout@v6
+      - name: compiler version
+        run: ${{ matrix.cc }} --version
+      - name: unit tests
+        run: make test CC=${{ matrix.cc }}
+      - name: pitrex backend syntax check
+        run: make pitrex-check CC=${{ matrix.cc }}
+
+  build:
+    name: Build & smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: build server (stub backend)
+        run: make
+      - name: selftest
+        run: ./vekterm --selftest
+      - name: decode a frame end-to-end (dry run)
+        run: |
+          printf '\x80\x00\x01\x90\x20\xF0\xF0\xF0\x52\x00\x48\x02\x42\x64\x48\x02\x60\x00\x00\x05\x00\x00\x00\x00' > frame.bin
+          ./vekterm --dry-run --input frame.bin --once --verbose
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: build image (compiles + tests inside Docker)
+        run: docker build -t vekterm:ci .
+      - name: selftest in container
+        run: docker run --rm vekterm:ci --selftest
+      - name: decode a frame via stdin
+        run: |
+          printf '\x80\x00\x01\x90\x20\xF0\xF0\xF0\x52\x00\x48\x02\x42\x64\x48\x02\x60\x00\x00\x05\x00\x00\x00\x00' \
+            | docker run --rm -i vekterm:ci --dry-run --input - --once

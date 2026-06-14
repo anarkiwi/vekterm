@@ -1,0 +1,25 @@
+# Keep the build context small and reproducible.
+.git
+.github
+.claude
+
+# Build artifacts (rebuilt inside the image)
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dSYM/
+/vekterm
+/vekterm-pitrex
+/tests/test_protocol
+/tests/test_frame
+/tests/test_coord
+
+# Scratch / local cruft
+*.bin
+.venv/
+__pycache__/
+.DS_Store
+*.swp
+*~

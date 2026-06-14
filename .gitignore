@@ -1,0 +1,29 @@
+# Build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dSYM/
+
+# Server binaries
+/vekterm
+/vekterm-pitrex
+
+# Compiled unit tests (the .c sources are tracked)
+/tests/test_protocol
+/tests/test_frame
+/tests/test_coord
+
+# Smoke-test scratch
+frame.bin
+*.bin
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+
+# Python (CI lint tooling, if a venv is created locally)
+.venv/
+__pycache__/
