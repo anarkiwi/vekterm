@@ -2,8 +2,20 @@
 
 #include <string.h>
 
+/* The XY field is 14 bits (0..16383), but the device grid is only 0..4095.
+ * Clamp a decoded coordinate into the valid device range so a buggy or hostile
+ * sender can never push an out-of-range point into a frame buffer; downstream
+ * consumers then never have to range-check the stored vectors. */
+static uint16_t clamp_dev_coord(uint16_t v)
+{
+    return v > VT_DVG_RES_MAX ? (uint16_t)VT_DVG_RES_MAX : v;
+}
+
 void vt_parser_reset_frame(vt_parser *parser)
 {
+    if (parser == NULL) {
+        return;
+    }
     parser->frame.count = 0;
     parser->frame.total_length = 0;
     parser->frame.monochrome = false;
@@ -16,6 +28,9 @@ void vt_parser_reset_frame(vt_parser *parser)
 
 void vt_parser_init(vt_parser *parser, vt_sink sink)
 {
+    if (parser == NULL) {
+        return;
+    }
     memset(parser, 0, sizeof *parser);
     parser->sink = sink;
     vt_parser_reset_frame(parser);
@@ -44,7 +59,11 @@ static void emit_lit(vt_parser *parser, uint16_t x, uint16_t y)
 
 void vt_parser_feed_word(vt_parser *parser, uint32_t word)
 {
-    vt_command cmd = vt_decode_word(word);
+    vt_command cmd;
+    if (parser == NULL) {
+        return;
+    }
+    cmd = vt_decode_word(word);
     parser->words_seen++;
 
     switch (cmd.flag) {
@@ -59,11 +78,11 @@ void vt_parser_feed_word(vt_parser *parser, uint32_t word)
     case VT_FLAG_XY:
         if (cmd.blank) {
             /* Beam-off reposition: move without drawing. */
-            parser->cur_x = cmd.x;
-            parser->cur_y = cmd.y;
+            parser->cur_x = clamp_dev_coord(cmd.x);
+            parser->cur_y = clamp_dev_coord(cmd.y);
             parser->have_pos = true;
         } else {
-            emit_lit(parser, cmd.x, cmd.y);
+            emit_lit(parser, clamp_dev_coord(cmd.x), clamp_dev_coord(cmd.y));
         }
         break;
     case VT_FLAG_COMPLETE:
@@ -91,9 +110,18 @@ void vt_parser_feed_word(vt_parser *parser, uint32_t word)
 void vt_parser_feed(vt_parser *parser, const uint8_t *data, size_t len)
 {
     size_t i;
+    if (parser == NULL || data == NULL) {
+        return;
+    }
     for (i = 0; i < len; i++) {
+        /* Invariant: 0 <= nbytes < VT_WORD_BYTES on entry, so neither the store
+         * below nor the dispatch can run past the reassembly buffer.  The bound
+         * is reasserted defensively in case the parser state was corrupted. */
+        if (parser->nbytes < 0 || parser->nbytes >= VT_WORD_BYTES) {
+            parser->nbytes = 0;
+        }
         parser->bytes[parser->nbytes++] = data[i];
-        if (parser->nbytes == 4) {
+        if (parser->nbytes == VT_WORD_BYTES) {
             uint32_t word = vt_unpack_be(parser->bytes);
             parser->nbytes = 0;
             vt_parser_feed_word(parser, word);

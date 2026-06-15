@@ -45,6 +45,14 @@ jobs:
       - name: unit tests
         run: make test CC=${{ matrix.cc }}
 
+  sanitize:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: unit tests under AddressSanitizer + UBSanitizer
+        run: make test SAN=1
+
   host:
     name: Host tool & smoke test
     runs-on: ubuntu-latest

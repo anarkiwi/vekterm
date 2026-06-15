@@ -11,8 +11,15 @@
 
 #include <stdio.h>
 
-static int vt_checks_run = 0;
-static int vt_checks_failed = 0;
+/*
+ * Check counters.  Only *declared* here; the single definition is emitted by
+ * VT_TEST_MAIN() in each test's own translation unit.  A header must not define
+ * mutable `static` storage — that gives every including TU its own private
+ * copy, so the counts would silently diverge if a test ever spanned more than
+ * one .c file (checks bumping one copy, the summary reading another).
+ */
+extern int vt_checks_run;
+extern int vt_checks_failed;
 
 #define VT_CHECK(cond)                                                                             \
     do {                                                                                           \
@@ -54,6 +61,8 @@ static int vt_checks_failed = 0;
     } while (0)
 
 #define VT_TEST_MAIN()                                                                             \
+    int vt_checks_run = 0;                                                                         \
+    int vt_checks_failed = 0;                                                                      \
     int main(void)                                                                                 \
     {                                                                                              \
         run_all();                                                                                 \

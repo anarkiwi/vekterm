@@ -1,4 +1,6 @@
 /* Wire-format tests — these pin the exact words the protocol uses, decoded. */
+#include <string.h>
+
 #include "protocol.h"
 #include "vt_test.h"
 
@@ -110,6 +112,62 @@ static void test_word_flag(void)
     VT_CHECK_EQ(vt_word_flag(0xC0000000u), VT_FLAG_EXT);
 }
 
+static void test_pack_unpack_roundtrip(void)
+{
+    static const uint32_t words[] = {
+        0x00000000u, 0xFFFFFFFFu, 0x80000190u, 0xDEADBEEFu, 0x12345678u, 0xE0000000u,
+    };
+    size_t i;
+    for (i = 0; i < sizeof words / sizeof words[0]; i++) {
+        uint8_t b[VT_WORD_BYTES];
+        vt_pack_be(words[i], b);
+        VT_CHECK_EQ_U32(vt_unpack_be(b), words[i]);
+    }
+    {
+        /* Bytes -> word -> bytes is the identity too (no byte-order surprises). */
+        const uint8_t in[VT_WORD_BYTES] = {0xDE, 0xAD, 0xBE, 0xEF};
+        uint8_t out[VT_WORD_BYTES];
+        vt_pack_be(vt_unpack_be(in), out);
+        VT_CHECK(memcmp(in, out, sizeof in) == 0);
+    }
+}
+
+static void test_decode_non_geometry_clears_fields(void)
+{
+    /* CMD/EXT/EXIT carry no geometry; every payload field must decode to zero
+     * regardless of the bits set below the flag, so a stale value can't leak. */
+    static const uint32_t words[] = {
+        ((uint32_t)VT_FLAG_CMD << VT_FLAG_SHIFT) | 0x1FFFFFFFu,
+        ((uint32_t)VT_FLAG_EXT << VT_FLAG_SHIFT) | 0x1FFFFFFFu,
+        ((uint32_t)VT_FLAG_EXIT << VT_FLAG_SHIFT) | 0x1FFFFFFFu,
+    };
+    static const vt_flag expect[] = {VT_FLAG_CMD, VT_FLAG_EXT, VT_FLAG_EXIT};
+    size_t i;
+    for (i = 0; i < sizeof words / sizeof words[0]; i++) {
+        vt_command c = vt_decode_word(words[i]);
+        VT_CHECK_EQ(c.flag, expect[i]);
+        VT_CHECK_EQ(c.x, 0);
+        VT_CHECK_EQ(c.y, 0);
+        VT_CHECK_EQ(c.r, 0);
+        VT_CHECK_EQ(c.g, 0);
+        VT_CHECK_EQ(c.b, 0);
+        VT_CHECK_EQ_U32(c.value, 0u);
+        VT_CHECK(!c.blank);
+        VT_CHECK(!c.monochrome);
+    }
+}
+
+static void test_payload_masks_out_flag_bits(void)
+{
+    /* FRAME/QUALITY payload is bits [28:0]; the flag bits must never leak in. */
+    vt_command frame = vt_decode_word(0x9FFFFFFFu);   /* flag=FRAME, payload all ones */
+    vt_command quality = vt_decode_word(0x7FFFFFFFu); /* flag=QUALITY, payload all ones */
+    VT_CHECK_EQ(frame.flag, VT_FLAG_FRAME);
+    VT_CHECK_EQ_U32(frame.value, VT_PAYLOAD_MASK);
+    VT_CHECK_EQ(quality.flag, VT_FLAG_QUALITY);
+    VT_CHECK_EQ_U32(quality.value, VT_PAYLOAD_MASK);
+}
+
 static void run_all(void)
 {
     VT_RUN(test_flag_values);
@@ -118,6 +176,9 @@ static void run_all(void)
     VT_RUN(test_decode_xy);
     VT_RUN(test_decode_rgb_frame_quality_complete_exit);
     VT_RUN(test_word_flag);
+    VT_RUN(test_pack_unpack_roundtrip);
+    VT_RUN(test_decode_non_geometry_clears_fields);
+    VT_RUN(test_payload_masks_out_flag_bits);
 }
 
 VT_TEST_MAIN()

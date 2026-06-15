@@ -30,6 +30,34 @@ static void test_map_coord_arbitrary_range(void)
     VT_CHECK_EQ(vt_map_coord(2048, 0, 1000), 500);
 }
 
+static void test_map_coord_inverted_range(void)
+{
+    /* A descending range (axis flip): device 0 -> the high end, device max ->
+     * the low end, both *exactly* (the old rounding was off by one here). */
+    VT_CHECK_EQ(vt_map_coord(0, HI, LO), HI);
+    VT_CHECK_EQ(vt_map_coord(VT_DVG_RES_MAX, HI, LO), LO);
+    {
+        int mid = vt_map_coord(2048, HI, LO);
+        VT_CHECK(mid >= -1 && mid <= 1); /* center still lands ~0 */
+    }
+}
+
+static void test_map_coord_degenerate_range(void)
+{
+    /* out_lo == out_hi: every device value collapses onto the single point. */
+    VT_CHECK_EQ(vt_map_coord(0, 7, 7), 7);
+    VT_CHECK_EQ(vt_map_coord(2048, 7, 7), 7);
+    VT_CHECK_EQ(vt_map_coord(VT_DVG_RES_MAX, 7, 7), 7);
+}
+
+static void test_map_coord_wide_range_no_overflow(void)
+{
+    /* span * dev exceeds 2^31 here, so a 32-bit intermediate (the baremetal
+     * target's `long`) would overflow; the endpoints must still be exact. */
+    VT_CHECK_EQ(vt_map_coord(0, 0, 2000000), 0);
+    VT_CHECK_EQ(vt_map_coord(VT_DVG_RES_MAX, 0, 2000000), 2000000);
+}
+
 static void test_brightness_from_rgb(void)
 {
     VT_CHECK_EQ(vt_brightness_from_rgb(240, 240, 240), 240);
@@ -53,6 +81,9 @@ static void run_all(void)
     VT_RUN(test_map_coord_endpoints);
     VT_RUN(test_map_coord_clamps);
     VT_RUN(test_map_coord_arbitrary_range);
+    VT_RUN(test_map_coord_inverted_range);
+    VT_RUN(test_map_coord_degenerate_range);
+    VT_RUN(test_map_coord_wide_range_no_overflow);
     VT_RUN(test_brightness_from_rgb);
     VT_RUN(test_scale_color);
 }

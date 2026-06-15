@@ -36,6 +36,7 @@ typedef enum {
 } vt_flag;
 
 /* Bit layout. */
+#define VT_WORD_BYTES 4                   /* Every command is one 32-bit (4-byte) word. */
 #define VT_FLAG_SHIFT 29                  /* The flag occupies bits [31:29].          */
 #define VT_BLANK_SHIFT 28                 /* The XY blank (beam-off) bit.             */
 #define VT_COORD_BITS 14                  /* Each XY coordinate is 14 bits wide.      */
@@ -72,8 +73,8 @@ vt_flag vt_word_flag(uint32_t word);
 vt_command vt_decode_word(uint32_t word);
 
 /* Big-endian word <-> 4 bytes. */
-void vt_pack_be(uint32_t word, uint8_t out[4]);
-uint32_t vt_unpack_be(const uint8_t in[4]);
+void vt_pack_be(uint32_t word, uint8_t out[VT_WORD_BYTES]);
+uint32_t vt_unpack_be(const uint8_t in[VT_WORD_BYTES]);
 
 /*
  * Word encoders.  The receiver only strictly needs the decoders above, but the

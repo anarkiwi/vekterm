@@ -58,7 +58,10 @@ Every command is a single **32-bit word, big-endian**. The top three bits
   A black `(0,0,0)` colour yields intensity 0; senders pair it with the `XY`
   blank bit, so such "draws" arrive blanked and produce no lit vector.
 - **XY** — `[28]=blank [27:14]=x [13:0]=y`, with `x`,`y` in device units
-  `0..4095`.
+  `0..4095`. The field is 14 bits wide, so a malformed sender can encode values
+  up to 16383; the parser **clamps every coordinate to `0..4095`** as it decodes,
+  so an out-of-range point can never enter a frame buffer
+  (`test_out_of_range_coords_are_clamped`).
 
 ## 3. Drawing semantics
 

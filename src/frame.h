@@ -60,8 +60,9 @@ typedef struct {
 typedef struct {
     vt_sink sink;
 
-    /* Byte reassembly buffer (a word is 4 bytes). */
-    uint8_t bytes[4];
+    /* Byte reassembly buffer for one big-endian word.  Invariant maintained by
+     * vt_parser_feed: 0 <= nbytes < VT_WORD_BYTES between bytes. */
+    uint8_t bytes[VT_WORD_BYTES];
     int nbytes;
 
     /* Beam + colour state. */

@@ -10,11 +10,13 @@ build.baremetal/
 /tests/test_protocol
 /tests/test_frame
 /tests/test_coord
+/tests/test_parser
 
 # OS / editor cruft
 .DS_Store
 *.swp
 *~
+*.dSYM/
 
 # Python (CI lint tooling, if a venv is created locally)
 .venv/

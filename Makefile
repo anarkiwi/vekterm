@@ -23,6 +23,15 @@ OPT     ?= -O2
 CFLAGS  ?= $(OPT) $(CSTD) $(WARN) -Isrc
 LDFLAGS ?=
 
+# Optional AddressSanitizer + UBSanitizer for the host build and tests.  Run the
+# whole suite under them with `make test SAN=1` (CI does this); they catch the
+# out-of-bounds and overflow bugs the parser is being hardened against.
+SAN ?= 0
+ifeq ($(SAN),1)
+CFLAGS  += -g -fsanitize=address,undefined -fno-sanitize-recover=all
+LDFLAGS += -fsanitize=address,undefined
+endif
+
 # Pure, portable core shared by the host tool, the tests, and the baremetal app.
 CORE     := src/protocol.c src/frame.c
 CORE_HDR := src/protocol.h src/frame.h
@@ -31,7 +40,7 @@ CORE_HDR := src/protocol.h src/frame.h
 HOST_SRC := src/vekterm.c src/serial.c src/backend_stub.c $(CORE)
 HOST_HDR := src/serial.h src/backend.h $(CORE_HDR)
 
-TESTS := tests/test_protocol tests/test_frame tests/test_coord
+TESTS := tests/test_protocol tests/test_frame tests/test_coord tests/test_parser
 
 .PHONY: all test check clean format format-check docker baremetal image help
 
@@ -153,6 +162,7 @@ clean:
 	rm -f vekterm $(TESTS)
 	rm -f kernel.img vekterm.img
 	rm -rf $(BMB)
+	rm -rf vekterm.dSYM tests/*.dSYM
 
 help:
 	@grep -E '^#   make' Makefile | sed 's/^#   /  /'

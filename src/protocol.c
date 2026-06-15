@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-void vt_pack_be(uint32_t word, uint8_t out[4])
+void vt_pack_be(uint32_t word, uint8_t out[VT_WORD_BYTES])
 {
     out[0] = (uint8_t)(word >> 24);
     out[1] = (uint8_t)(word >> 16);
@@ -10,7 +10,7 @@ void vt_pack_be(uint32_t word, uint8_t out[4])
     out[3] = (uint8_t)(word >> 0);
 }
 
-uint32_t vt_unpack_be(const uint8_t in[4])
+uint32_t vt_unpack_be(const uint8_t in[VT_WORD_BYTES])
 {
     return ((uint32_t)in[0] << 24) | ((uint32_t)in[1] << 16) | ((uint32_t)in[2] << 8) |
            (uint32_t)in[3];
@@ -110,13 +110,28 @@ uint8_t vt_brightness_from_rgb(uint8_t r, uint8_t g, uint8_t b)
 
 int vt_map_coord(int dev, int out_lo, int out_hi)
 {
-    long span;
+    int64_t span;
+    int64_t num;
+    int64_t q;
+
     if (dev < VT_DVG_RES_MIN) {
         dev = VT_DVG_RES_MIN;
     }
     if (dev > VT_DVG_RES_MAX) {
         dev = VT_DVG_RES_MAX;
     }
-    span = (long)out_hi - (long)out_lo;
-    return out_lo + (int)((span * dev + VT_DVG_RES_MAX / 2) / VT_DVG_RES_MAX);
+
+    /* Linear interpolation across the device grid, rounded to nearest.  The
+     * 64-bit intermediate keeps `span * dev` exact for any int endpoints (the
+     * baremetal target's `long` is only 32 bits, so the old 32-bit product could
+     * overflow), and rounding half away from zero keeps both endpoints exact
+     * whether the output range ascends (-2048..2047) or descends (2047..-2048). */
+    span = (int64_t)out_hi - (int64_t)out_lo;
+    num = span * (int64_t)dev;
+    if (num >= 0) {
+        q = (num + VT_DVG_RES_MAX / 2) / VT_DVG_RES_MAX;
+    } else {
+        q = (num - VT_DVG_RES_MAX / 2) / VT_DVG_RES_MAX;
+    }
+    return out_lo + (int)q;
 }
