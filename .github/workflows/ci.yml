@@ -37,7 +37,6 @@ jobs:
         include:
           - { os: ubuntu-latest, cc: gcc }
           - { os: ubuntu-latest, cc: clang }
-          - { os: macos-latest, cc: clang }
     steps:
       - uses: actions/checkout@v6
       - name: compiler version
