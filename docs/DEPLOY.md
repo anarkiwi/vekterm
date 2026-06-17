@@ -61,7 +61,10 @@ CP2102N handles it. If yours is flaky, rebuild for a slower, rock-solid link wit
 
 ## Step 4 — Boot
 
-Insert the card, power on. The Pi boots straight into vekterm. On the host:
+Insert the card, power on. The Pi boots straight into vekterm. With nothing yet
+connected to the UART, the Vectrex shows a `VEKTERM / WAITING FOR DATA` splash
+(with the expected line settings) — that confirms the board booted and is
+listening. The splash clears as soon as the first frame arrives. On the host:
 
 ```bash
 pip install pyvterm
@@ -130,8 +133,9 @@ provenance and licensing.
 
 | Symptom | Likely cause / fix |
 | --- | --- |
-| Nothing happens at all | Re-seat the card; confirm `out/vekterm.img` flashed cleanly. Connect the host RX to Pi TX (GPIO14) to watch the "PiTrex starting…" boot message. |
-| Boots but draws nothing | Calibration: widen `VT_VECTREX_MAX`, lower `VT_BRIGHT_SHIFT`. Confirm the sender is connected to **GPIO15 (RX)** and sharing **GND**. |
+| No splash, blank screen | The board isn't running (or can't drive the Vectrex). Re-seat the card; confirm `out/vekterm.img` flashed cleanly. Connect the host RX to Pi TX (GPIO14) to watch the "PiTrex starting…" boot message. |
+| Splash shows but no vectors after connecting | The receiver is alive; the link or the sender is the issue. Confirm the sender is on **GPIO15 (RX)**, sharing **GND**, at the baud shown on the splash. |
+| Splash and vectors but mispositioned/dim | Calibration: widen `VT_VECTREX_MAX`, lower `VT_BRIGHT_SHIFT`. |
 | Garbled / no vectors over serial | Baud mismatch or a marginal adapter at 2 Mbaud. Rebuild with `-DVT_UART_BAUD=115200` and set the sender to 115200. |
 | Image won't boot on a Pi 2/3/Zero 2 | This targets the **Pi Zero / Zero W (BCM2835, ARMv6)**. Other models need different firmware/flags. |
 | Want to test without a Vectrex | `./vekterm --dry-run` (host build) decodes and reports without any hardware. |
