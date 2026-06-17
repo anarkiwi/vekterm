@@ -55,6 +55,17 @@
 #define VT_REFRESH_HZ 50
 #endif
 
+/* Idle splash brightness (Vectrex z-axis, 0..127). */
+#ifndef VT_SPLASH_BRIGHT
+#define VT_SPLASH_BRIGHT 0x50
+#endif
+
+/* Stringize the configured baud so the splash can show the line settings an
+ * operator must match on the sender, without any runtime int formatting. */
+#define VT_STR2(x) #x
+#define VT_STR(x) VT_STR2(x)
+#define VT_SPLASH_BAUD_LINE VT_STR(VT_UART_BAUD) " BAUD 8N1"
+
 /* Cap bytes drained per refresh so a flood of input can't starve the display. */
 #ifndef VT_DRAIN_BUDGET
 #define VT_DRAIN_BUDGET 16384
@@ -78,12 +89,21 @@ static void on_exit(void *ctx)
     (void)ctx;
 }
 
+/* Until the first frame arrives (e.g. nothing is connected to the UART yet),
+ * draw a static splash so the operator can see the receiver booted and is
+ * waiting — a blank screen is indistinguishable from a dead board. The Vectrex
+ * BIOS font is uppercase-only; coords are 8-bit, centred at 0,0 with +y up.
+ * v_printString takes (x, y, string, textSize, brightness). */
+static void draw_idle_splash(void)
+{
+    v_printString(-40, 40, "VEKTERM", 2, VT_SPLASH_BRIGHT);
+    v_printString(-60, 5, "WAITING FOR DATA", 1, VT_SPLASH_BRIGHT);
+    v_printString(-60, -25, VT_SPLASH_BAUD_LINE, 1, VT_SPLASH_BRIGHT);
+}
+
 static void draw_active_frame(void)
 {
     int i;
-    if (!g_have_frame) {
-        return;
-    }
     for (i = 0; i < g_active.count; i++) {
         const vt_segment *s = &g_active.segments[i];
         int32_t x0 = vt_map_coord(s->x0, VT_VECTREX_MIN, VT_VECTREX_MAX);
@@ -125,7 +145,11 @@ int main(int argc, char **argv)
             vt_parser_feed(&parser, &byte, 1);
         }
         v_WaitRecal();
-        draw_active_frame();
+        if (g_have_frame) {
+            draw_active_frame();
+        } else {
+            draw_idle_splash();
+        }
     }
     return 0;
 }
