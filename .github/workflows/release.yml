@@ -24,7 +24,15 @@ jobs:
           cp out/kernel.img "release/vekterm-${ver}-kernel.img"
           gzip -c out/vekterm.img > "release/vekterm-${ver}.img.gz"
           cd release && sha256sum ./* > "vekterm-${ver}.sha256"
-      - name: create release
+      - name: create or update release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --title "vekterm ${GITHUB_REF_NAME}" --generate-notes release/*
+        # Idempotent: if a release for this tag already exists (e.g. it was
+        # pre-created locally, or this is a re-run after a partial failure),
+        # attach/refresh the artifacts instead of failing. Otherwise create it.
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" --clobber release/*
+          else
+            gh release create "${GITHUB_REF_NAME}" --title "vekterm ${GITHUB_REF_NAME}" --generate-notes release/*
+          fi
