@@ -1,19 +1,27 @@
 # Deploying vekterm: a PiTrex that boots straight into the receiver
 
 vekterm deploys **baremetal** — there is no operating system. The Pi's firmware
-loads `kernel.img` (which *is* vekterm) and runs it directly. Power on and the
-PiTrex is immediately drawing whatever a sender streams over the serial link.
+loads a vekterm kernel and runs it directly. Power on and the PiTrex is
+immediately drawing whatever a sender streams over the serial link.
+
+The image carries **two** kernels because the peripheral base address and CPU
+arch differ per Pi family and are fixed at compile time; the firmware loads the
+right one for the board:
+
+- `kernel.img`  — Pi Zero / Zero W (BCM2835, ARMv6, peripherals `0x20000000`)
+- `kernel7.img` — Pi Zero 2 W / 2 / 3 (BCM2837, ARMv7, peripherals `0x3F000000`)
 
 ```
-power on ──▶ Pi firmware (bootcode.bin, start.elf) loads kernel.img
+power on ──▶ Pi firmware (bootcode.bin, start.elf) reads config.txt and loads
+             kernel.img (Pi Zero) or kernel7.img (Pi Zero 2 W) per the SoC
          ──▶ vekterm runs: reads the mini-UART, draws the active frame on the
              Vectrex every refresh via libpitrex
 ```
 
 ## Prerequisites
 
-- A built PiTrex: a Raspberry Pi Zero (W/WH) on the PiTrex cartridge in a
-  Vectrex, per the [PiTrex Hardware Guide][hwguide].
+- A built PiTrex: a Raspberry Pi Zero (W/WH) **or Pi Zero 2 W** on the PiTrex
+  cartridge in a Vectrex, per the [PiTrex Hardware Guide][hwguide].
 - A microSD card.
 - **Docker** (to build the image — no local toolchain needed), or
   `arm-none-eabi-gcc` + newlib for a local build.
@@ -24,8 +32,9 @@ power on ──▶ Pi firmware (bootcode.bin, start.elf) loads kernel.img
 
 ```bash
 make docker
-# -> out/kernel.img   the baremetal binary
-# -> out/vekterm.img  a flashable SD-card image (firmware + config.txt + kernel.img)
+# -> out/kernel.img   the baremetal binary (Pi Zero / Zero W)
+# -> out/kernel7.img  the baremetal binary (Pi Zero 2 W / 2 / 3)
+# -> out/vekterm.img  a flashable SD-card image (firmware + config.txt + both kernels)
 ```
 
 `make docker` cross-compiles vekterm against `libpitrex` and assembles the SD
@@ -137,7 +146,7 @@ provenance and licensing.
 | Splash shows but no vectors after connecting | The receiver is alive; the link or the sender is the issue. Confirm the sender is on **GPIO15 (RX)**, sharing **GND**, at the baud shown on the splash. |
 | Splash and vectors but mispositioned/dim | Calibration: widen `VT_VECTREX_MAX`, lower `VT_BRIGHT_SHIFT`. |
 | Garbled / no vectors over serial | Baud mismatch or a marginal adapter at 2 Mbaud. Rebuild with `-DVT_UART_BAUD=115200` and set the sender to 115200. |
-| Image won't boot on a Pi 2/3/Zero 2 | This targets the **Pi Zero / Zero W (BCM2835, ARMv6)**. Other models need different firmware/flags. |
+| Nothing on a Pi Zero 2 W | The firmware loads `kernel7.img` on that board (`config.txt` `[pi02]`). Confirm both `kernel.img` and `kernel7.img` are on the card. The Pi 4/5 are **not** supported (different firmware/base). |
 | Want to test without a Vectrex | `./vekterm --dry-run` (host build) decodes and reports without any hardware. |
 
 [hwguide]: http://www.ombertech.com/cnk/pitrex/wiki/index.php?wiki=Developer_Release_HW_Guide

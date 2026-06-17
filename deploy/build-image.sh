@@ -13,10 +13,13 @@
 # IMG_SIZE_MB (default 64).
 set -euo pipefail
 
-KERNEL="${1:?usage: build-image.sh <kernel.img> <out.img>}"
-OUT="${2:?usage: build-image.sh <kernel.img> <out.img>}"
+KERNEL="${1:?usage: build-image.sh <kernel.img> <kernel7.img> <out.img>}"
+KERNEL7="${2:?usage: build-image.sh <kernel.img> <kernel7.img> <out.img>}"
+OUT="${3:?usage: build-image.sh <kernel.img> <kernel7.img> <out.img>}"
 
-# Raspberry Pi Zero is a BCM2835: bootcode.bin + start.elf + fixup.dat.
+# bootcode.bin + start.elf + fixup.dat from raspberrypi/firmware. This pre-Pi4
+# firmware set boots every model we target: the BCM2835 Pi Zero/W (loads
+# kernel.img) and the BCM2837 Pi Zero 2 W (loads kernel7.img).
 RPI_FW_REF="${RPI_FW_REF:-stable}"
 FW_BASE="https://github.com/raspberrypi/firmware/raw/${RPI_FW_REF}/boot"
 FW_FILES="bootcode.bin start.elf fixup.dat"
@@ -35,7 +38,8 @@ for f in $FW_FILES; do
 done
 
 echo "==> Staging boot files"
-cp "$KERNEL" "$work/kernel.img"
+cp "$KERNEL"  "$work/kernel.img"
+cp "$KERNEL7" "$work/kernel7.img"
 cp "$here/config.txt" "$work/config.txt"
 
 echo "==> Creating ${IMG_SIZE_MB}MiB image with a bootable FAT partition"
@@ -50,7 +54,7 @@ echo "==> Formatting + populating the partition (mtools, unprivileged)"
 mformat -i "$OUT@@${PART_OFFSET}" -F -v VEKTERM ::
 mcopy -i "$OUT@@${PART_OFFSET}" \
 	"$work/bootcode.bin" "$work/start.elf" "$work/fixup.dat" \
-	"$work/config.txt" "$work/kernel.img" ::/
+	"$work/config.txt" "$work/kernel.img" "$work/kernel7.img" ::/
 # vectrexInterface mounts the SD on v_init(); give it the dirs it may look for.
 mmd -i "$OUT@@${PART_OFFSET}" ::/settings ::/ini 2>/dev/null || true
 
