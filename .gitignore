@@ -2,6 +2,7 @@
 build.baremetal/
 /vekterm
 /kernel.img
+/kernel7.img
 /vekterm.img
 /out/
 /frame.bin

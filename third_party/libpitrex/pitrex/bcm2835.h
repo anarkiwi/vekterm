@@ -587,8 +587,19 @@
   If /proc/device-tree/soc/ranges exists on a RPi 1 OS, it would be expected to contain the
   following numbers:
 */
-/*! Peripherals block base address on RPi 1 */
+/* vekterm-vendor: pick the peripheral base by Pi model at compile time. The
+ * FREESTANDING bcm2835_init() points bcm2835_peripherals straight at
+ * BCM2835_PERI_BASE, and baremetal has no /proc device-tree to detect the SoC
+ * at runtime. So a BCM2836/2837 board (Pi 2/3/Zero 2 W, built with -DRPI2 or
+ * -DRPI3) must compile with the 0x3F000000 base; the original Pi Zero (BCM2835)
+ * keeps 0x20000000. This mirrors the gating already in rpi-base.h and
+ * lib2835/bcm2835.h. */
+/*! Peripherals block base address */
+#if defined(RPI2) || defined(RPI3)
+#define BCM2835_PERI_BASE               0x3F000000
+#else
 #define BCM2835_PERI_BASE               0x20000000
+#endif
 /*! Size of the peripherals block on RPi 1 */
 #define BCM2835_PERI_SIZE               0x01000000
 /*! Alternate base address for RPI  2 / 3 */

@@ -42,7 +42,7 @@ HOST_HDR := src/serial.h src/backend.h $(CORE_HDR)
 
 TESTS := tests/test_protocol tests/test_frame tests/test_coord tests/test_parser
 
-.PHONY: all test check clean format format-check docker baremetal image help
+.PHONY: all test check clean format format-check docker baremetal baremetal7 kernels image help
 
 all: vekterm
 
@@ -74,13 +74,21 @@ format-check:
 # Build everything in Docker and export the artifacts to ./out.
 docker:
 	docker build --target artifacts --output type=local,dest=out .
-	@echo "exported out/kernel.img and out/vekterm.img"
+	@echo "exported out/kernel.img, out/kernel7.img and out/vekterm.img"
 
-# ---- baremetal build (the deployable PiTrex kernel image) ----------------
+# ---- baremetal build (the deployable PiTrex kernel images) ---------------
 # Self-contained: compiles vekterm + the vendored libpitrex sources with
 # arm-none-eabi-gcc and links the vendored pitrex archives + linker script,
 # then objcopy to a raw kernel image. No external checkout, no build-time
 # patching (fixes are baked into third_party/libpitrex; see its NOTICE.md).
+#
+# Two kernels are built, one per Pi family, because the peripheral base address
+# (and CPU arch) differ and are baked in at compile time:
+#   kernel.img  -- Pi Zero / Zero W  (BCM2835, ARMv6, peripherals @ 0x20000000)
+#   kernel7.img -- Pi Zero 2 W / 2/3 (BCM2837, ARMv7, peripherals @ 0x3F000000)
+# The Pi firmware auto-selects by SoC (see deploy/config.txt: [pi0]/[pi02]).
+# Each variant links the matching prebuilt HAL archives (lib/ vs lib7/ upstream;
+# vendored here as baremetal/ and baremetal/lib7/).
 VENDOR         := third_party/libpitrex
 BM_CC          ?= arm-none-eabi-gcc
 BM_OBJCOPY     ?= arm-none-eabi-objcopy
@@ -88,21 +96,10 @@ BM_OBJCOPY     ?= arm-none-eabi-objcopy
 BM_PITREX_DIR  := $(VENDOR)/pitrex
 BM_VECTREX_DIR := $(VENDOR)/vectrex
 BM_LIB_DIR     := $(VENDOR)/baremetal
-BMB            := build.baremetal/
 
 # EXTRA_CFLAGS lets you calibrate without editing source, e.g.:
 #   make baremetal EXTRA_CFLAGS='-DVT_VECTREX_MAX=12000 -DVT_UART_BAUD=115200'
-# -fcommon: the pitrex sources predate GCC 10 and rely on tentative-definition
-# merging (shared globals like errno/settings); GCC now defaults to -fno-common.
 EXTRA_CFLAGS ?=
-# SETTINGS_DIR is where vectrexInterface reads/writes settings on the SD root
-# (build-image.sh creates this dir); upstream passes it via its makefile.
-BM_CFLAGS := -Ofast -Isrc -fcommon \
-	-I$(VENDOR) -I$(BM_LIB_DIR)/lib2835 -I$(BM_LIB_DIR) -L$(BM_LIB_DIR) \
-	-mfloat-abi=hard -nostartfiles -mfpu=vfp -march=armv6zk -mtune=arm1176jzf-s \
-	-DRPI0 -DFREESTANDING -DPITREX_DEBUG -DMHZ1000 -DLOADER_START=0x4000000 \
-	-DSETTINGS_DIR='"settings"' \
-	$(EXTRA_CFLAGS)
 
 # Newlib's default syscall stubs (_kill, _getpid, ...) for symbols cstubs.c
 # doesn't provide; the driver inserts libnosys after libc (link order matters).
@@ -118,50 +115,67 @@ BM_VECTREX_C := vectrexInterface osWrapper baremetalUtil
 BM_LOADER_C  := bareMetalMain cstubs rpi-armtimer rpi-aux rpi-gpio rpi-interrupts rpi-systimer
 BM_APP       := protocol frame vekterm_baremetal
 
-BM_PITREX_OBJS  := $(addprefix $(BMB), $(addsuffix .o, $(BM_PITREX_C)))
-BM_VECTREX_OBJS := $(addprefix $(BMB), $(addsuffix .o, $(BM_VECTREX_C)))
-BM_LOADER_OBJS  := $(addprefix $(BMB), $(addsuffix .o, $(BM_LOADER_C)))
-BM_APP_OBJS     := $(addprefix $(BMB), $(addsuffix .o, $(BM_APP)))
-BM_ALL_OBJS := $(BMB)baremetalEntry.o $(BM_LOADER_OBJS) $(BM_PITREX_OBJS) \
-	$(BM_VECTREX_OBJS) $(BM_APP_OBJS)
+baremetal:  kernel.img
+baremetal7: kernel7.img
+kernels:    kernel.img kernel7.img
 
-baremetal: kernel.img
+# bm_variant: instantiate a full per-Pi build.  Args:
+#   $(1) variant tag / object dir   $(2) -march/-mtune/-mfpu flags
+#   $(3) -D model (sets peripheral base via rpi-base.h / bcm2835.h gating)
+#   $(4) archive -L dir (lib/ vs lib7/)   $(5) output image name
+# -fcommon: the pitrex sources predate GCC 10 and rely on tentative-definition
+# merging (shared globals like errno/settings); GCC now defaults to -fno-common.
+# SETTINGS_DIR is where vectrexInterface reads/writes settings on the SD root.
+define bm_variant
+BMB_$(1) := build.baremetal/$(1)/
+BM_CFLAGS_$(1) := -Ofast -Isrc -fcommon \
+	-I$$(VENDOR) -I$$(BM_LIB_DIR)/lib2835 -I$$(BM_LIB_DIR) \
+	-mfloat-abi=hard -nostartfiles $(2) \
+	$(3) -DFREESTANDING -DPITREX_DEBUG -DMHZ1000 -DLOADER_START=0x4000000 \
+	-DSETTINGS_DIR='"settings"' \
+	$$(EXTRA_CFLAGS)
+BM_OBJS_$(1) := $$(addprefix $$(BMB_$(1)), baremetalEntry.o \
+	$$(addsuffix .o, $$(BM_LOADER_C) $$(BM_PITREX_C) $$(BM_VECTREX_C) $$(BM_APP)))
 
-$(BMB):
-	mkdir -p $(BMB)
+$$(BMB_$(1)):
+	mkdir -p $$@
 
-$(BM_PITREX_OBJS): $(BMB)%.o: $(BM_PITREX_DIR)/%.c | $(BMB)
-	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
+$$(BMB_$(1))%.o: $$(BM_LIB_DIR)/%.c | $$(BMB_$(1))
+	$$(BM_CC) $$(BM_CFLAGS_$(1)) -c $$< -o $$@
+$$(BMB_$(1))%.o: $$(BM_PITREX_DIR)/%.c | $$(BMB_$(1))
+	$$(BM_CC) $$(BM_CFLAGS_$(1)) -c $$< -o $$@
+$$(BMB_$(1))%.o: $$(BM_VECTREX_DIR)/%.c | $$(BMB_$(1))
+	$$(BM_CC) $$(BM_CFLAGS_$(1)) -c $$< -o $$@
+$$(BMB_$(1))%.o: src/%.c $$(CORE_HDR) | $$(BMB_$(1))
+	$$(BM_CC) $$(BM_CFLAGS_$(1)) -c $$< -o $$@
+$$(BMB_$(1))baremetalEntry.o: $$(BM_LIB_DIR)/baremetalEntry.S | $$(BMB_$(1))
+	$$(BM_CC) $$(BM_CFLAGS_$(1)) -D__ASSEMBLY__ -c $$< -o $$@
 
-$(BM_VECTREX_OBJS): $(BMB)%.o: $(BM_VECTREX_DIR)/%.c | $(BMB)
-	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
+$(5): $$(BM_OBJS_$(1))
+	$$(BM_CC) $$(BM_CFLAGS_$(1)) -o $$(BMB_$(1))vekterm.elf \
+		$$(BM_OBJS_$(1)) \
+		-L$(4) $$(BM_LIBS) $$(BM_SYSLIBS) $$(BM_LIB_DIR)/linkerHeapDefBoot.ld
+	$$(BM_OBJCOPY) $$(BMB_$(1))vekterm.elf -O binary $(5)
+	@echo "built $(5) ($$$$(wc -c < $(5)) bytes)"
+endef
 
-$(BM_LOADER_OBJS): $(BMB)%.o: $(BM_LIB_DIR)/%.c | $(BMB)
-	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
-
-$(BM_APP_OBJS): $(BMB)%.o: src/%.c $(CORE_HDR) | $(BMB)
-	$(BM_CC) $(BM_CFLAGS) -c $< -o $@
-
-$(BMB)baremetalEntry.o: $(BM_LIB_DIR)/baremetalEntry.S | $(BMB)
-	$(BM_CC) $(BM_CFLAGS) -D__ASSEMBLY__ -c $< -o $@
-
-kernel.img: $(BM_ALL_OBJS)
-	$(BM_CC) $(BM_CFLAGS) -o $(BMB)vekterm.elf \
-		$(BM_ALL_OBJS) \
-		$(BM_LIBS) $(BM_SYSLIBS) $(BM_LIB_DIR)/linkerHeapDefBoot.ld
-	$(BM_OBJCOPY) $(BMB)vekterm.elf -O binary kernel.img
-	@echo "built kernel.img ($$(wc -c < kernel.img) bytes)"
+# Pi Zero / Zero W: ARMv6, BCM2835 base 0x20000000 (RPI0 -> rpi-base.h default).
+$(eval $(call bm_variant,v6,-mfpu=vfp -march=armv6zk -mtune=arm1176jzf-s,-DRPI0,$(BM_LIB_DIR),kernel.img))
+# Pi Zero 2 W / 2 / 3: ARMv7, BCM2837 base 0x3F000000 (RPI2 flips the base in
+# rpi-base.h, lib2835/bcm2835.h and pitrex/bcm2835.h). Mirrors upstream lib7.
+$(eval $(call bm_variant,v7,-mfpu=neon-vfpv4 -march=armv7-a -mtune=cortex-a7,-DRPI2,$(BM_LIB_DIR)/lib7,kernel7.img))
 
 # ---- SD card image -------------------------------------------------------
+# One flashable image carries both kernels; the Pi firmware picks per SoC.
 image: vekterm.img
 
-vekterm.img: kernel.img deploy/build-image.sh deploy/config.txt
-	deploy/build-image.sh kernel.img vekterm.img
+vekterm.img: kernel.img kernel7.img deploy/build-image.sh deploy/config.txt
+	deploy/build-image.sh kernel.img kernel7.img vekterm.img
 
 clean:
 	rm -f vekterm $(TESTS)
-	rm -f kernel.img vekterm.img
-	rm -rf $(BMB)
+	rm -f kernel.img kernel7.img vekterm.img
+	rm -rf build.baremetal
 	rm -rf vekterm.dSYM tests/*.dSYM
 
 help:

@@ -41,4 +41,5 @@ RUN RPI_FW_REF="${RPI_FW_REF}" make image EXTRA_CFLAGS="${VEKTERM_CFLAGS}"
 # ---- export stage: nothing but the artifacts ----------------------------
 FROM scratch AS artifacts
 COPY --from=build /build/kernel.img /kernel.img
+COPY --from=build /build/kernel7.img /kernel7.img
 COPY --from=build /build/vekterm.img /vekterm.img

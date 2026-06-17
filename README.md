@@ -64,9 +64,14 @@ a container, so you need no local ARM toolchain:
 
 ```bash
 make docker
-# -> out/kernel.img   the baremetal binary (boots straight into vekterm)
-# -> out/vekterm.img  a flashable SD-card image (firmware + config + kernel)
+# -> out/kernel.img   the baremetal binary, Pi Zero / Zero W
+# -> out/kernel7.img  the baremetal binary, Pi Zero 2 W / 2 / 3
+# -> out/vekterm.img  a flashable SD-card image (firmware + config + both kernels)
 ```
+
+Two kernels are built because the peripheral base and CPU arch differ per Pi
+family (BCM2835/ARMv6 vs BCM2837/ARMv7) and are fixed at compile time; the Pi
+firmware loads the right one per board. One `vekterm.img` boots on either.
 
 Under the hood the [`Dockerfile`](Dockerfile) cross-compiles the baremetal
 receiver with `arm-none-eabi-gcc` against the **vendored** libpitrex
@@ -92,8 +97,9 @@ make docker
 #   sudo dd if=out/vekterm.img of=/dev/sdX bs=4M conv=fsync
 ```
 
-Put the card in the PiTrex's Pi, wire the sender to the Pi's UART (GPIO14/15 at
-3.3 V), and power on — it boots straight into vekterm, no login, no OS. Point
+Put the card in the PiTrex's Pi (Zero / Zero W / Zero 2 W), wire the sender to
+the Pi's UART (GPIO14/15 at 3.3 V), and power on — it boots straight into
+vekterm, no login, no OS. Point
 pyvterm at the other end of that serial link and draw. The full walk-through
 (UART wiring, the `config.txt`, calibration, and how it boots) is in
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
