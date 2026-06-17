@@ -23,8 +23,11 @@ gpio=0-5,16-24,26-29=ip
 gpio=6-13,25=op
 gpio=24=np
 
-# Alternative USB handling (host mode); harmless baremetal, matches upstream.
-dtoverlay=dwc2,dr_mode=host
+# NOTE: do NOT enable dtoverlay here. An overlay makes the firmware load a
+# device tree + .dtbo files from /overlays/, which this baremetal card does not
+# carry; on some firmware that stops the kernel from booting at all. The
+# official PiTrex distribution ships this line commented out, so we do too.
+#dtoverlay=dwc2,dr_mode=host
 
 # Clocking matches the official PiTrex baremetal distribution, which is proven
 # on both the Pi Zero and the Pi Zero 2 W: enable the UART, pin the core clock,
