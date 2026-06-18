@@ -22,10 +22,12 @@ void  kernelMain( unsigned int r0, unsigned int r1, unsigned int atags )
     {
       lib_bcm2835_vc_set_clock_rate(BCM2835_VC_CLOCK_ID_ARM, 1000000000);
       /* vekterm-vendor: the mini-UART is clocked by the VPU/core clock, which
-       * deploy/config.txt pins at core_freq=250 MHz (matching the official
-       * PiTrex distribution). Upstream assumed a 400 MHz core here, which makes
-       * the banner come out at the wrong baud on a core_freq=250 board. */
-      RPI_AuxMiniUartInit( 115200, 8, 250000000);
+       * deploy/config.txt pins at core_freq=250 MHz. The boot banner uses
+       * 921600 baud to match the official PiTrex distribution (so one terminal
+       * rate reads both). 250 MHz / (8 * (div+1)) with div=33 gives 919117,
+       * within 0.3% of 921600; pass an effective clock that lands the integer
+       * divisor on 33. (Upstream assumed a 400 MHz core and 115200 here.) */
+      RPI_AuxMiniUartInit( 921600, 8, 250675200);
     }
 #else
     if (arm_clock != 700000000)
