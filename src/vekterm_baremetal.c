@@ -24,15 +24,20 @@
 #include "frame.h"
 #include "protocol.h"
 
-/* Serial line rate of the incoming protocol. Must match the sender; the pitrex
- * mini-UART clock is 400 MHz under -DMHZ1000, so 2 Mbaud divides cleanly
- * (400e6 / (8*2e6) = 25). Override at build time with -DVT_UART_BAUD=115200 for
- * a slower, very robust link. */
+/* Serial line rate of the incoming protocol. Must match the sender. The
+ * mini-UART baud is the core clock / (8 * (divisor+1)); VT_UART_CLOCK MUST equal
+ * the actual VPU/core clock (deploy/config.txt pins core_freq=250 MHz) or the
+ * baud is wrong. NB: 2 Mbaud does NOT divide cleanly from 250 MHz
+ * (250e6/(8*2e6) = 15.6 -> nearest divisor gives ~2.08 Mbaud, ~4% off), which is
+ * marginal for a reliable data link. For streaming data prefer a rate that
+ * divides cleanly, e.g. -DVT_UART_BAUD=1250000 (250e6/(8*25), exact) with the
+ * sender set to match, or -DVT_UART_BAUD=115200 (250e6/(8*271), 0.1% off) for a
+ * slow, rock-solid link. The boot banner at 115200 is well within tolerance. */
 #ifndef VT_UART_BAUD
 #define VT_UART_BAUD 2000000
 #endif
 #ifndef VT_UART_CLOCK
-#define VT_UART_CLOCK 400000000
+#define VT_UART_CLOCK 250000000
 #endif
 
 /* Device coords 0..4095 map onto this Vectrex integrator range. The default

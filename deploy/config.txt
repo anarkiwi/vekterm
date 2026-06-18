@@ -29,9 +29,11 @@ gpio=24=np
 # official PiTrex distribution ships this line commented out, so we do too.
 #dtoverlay=dwc2,dr_mode=host
 
-# Clocking matches the official PiTrex baremetal distribution, which is proven
-# on both the Pi Zero and the Pi Zero 2 W: enable the UART, pin the core clock,
-# and force turbo so the clock (and thus the mini-UART baud) doesn't scale.
+# Clocking matches the official PiTrex baremetal distribution (proven to boot on
+# both the Pi Zero and the Zero 2 W): enable the mini-UART on the header, pin the
+# core clock at 250 MHz, and force turbo so it can't scale. The baremetal runtime
+# is built to compute the mini-UART divisor from this same 250 MHz core clock
+# (see VT_UART_CLOCK / bareMetalMain.c), so the serial baud comes out correct.
 enable_uart=1
 core_freq=250
 force_turbo=1
