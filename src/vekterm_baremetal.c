@@ -16,6 +16,7 @@
  * docs/DEPLOY.md.
  */
 #include <stdint.h>
+#include <stdio.h> /* printf (baremetal: routed to the mini-UART via cstubs) */
 
 #include <pitrex/pitrexio-gpio.h> /* vectrexinit() */
 #include <rpi-aux.h>              /* RPI_AuxMiniUart* (mini-UART) */
@@ -32,7 +33,7 @@
  * marginal for a reliable data link. For streaming data prefer a rate that
  * divides cleanly, e.g. -DVT_UART_BAUD=1250000 (250e6/(8*25), exact) with the
  * sender set to match, or -DVT_UART_BAUD=115200 (250e6/(8*271), 0.1% off) for a
- * slow, rock-solid link. The boot banner at 115200 is well within tolerance. */
+ * slow, rock-solid link. (The boot banner is emitted separately at 921600.) */
 #ifndef VT_UART_BAUD
 #define VT_UART_BAUD 2000000
 #endif
@@ -134,8 +135,14 @@ int main(int argc, char **argv)
     v_init();
     v_setRefresh(VT_REFRESH_HZ);
 
-    /* The framework brought the mini-UART up at 115200; switch it to the
-     * protocol's line rate. */
+    /* Last line emitted at the boot-banner baud (921600), before the link
+     * switches to the protocol rate. Seeing this on the console confirms init
+     * completed and the draw loop is about to run (the splash is being drawn) —
+     * useful for a bench test with no Vectrex or sender attached. */
+    printf("vekterm: init complete; entering draw loop, link -> %d baud\r\n", VT_UART_BAUD);
+
+    /* kernelMain brought the mini-UART up at 921600 for the banner; switch it
+     * to the protocol's line rate for incoming vector data. */
     RPI_AuxMiniUartInit(VT_UART_BAUD, 8, VT_UART_CLOCK);
 
     sink.ctx = NULL;
