@@ -40,7 +40,7 @@ CORE_HDR := src/protocol.h src/frame.h
 HOST_SRC := src/vekterm.c src/serial.c src/backend_stub.c $(CORE)
 HOST_HDR := src/serial.h src/backend.h $(CORE_HDR)
 
-TESTS := tests/test_protocol tests/test_frame tests/test_coord tests/test_parser
+TESTS := tests/test_protocol tests/test_frame tests/test_coord tests/test_parser tests/test_ext
 
 .PHONY: all test check clean format format-check docker baremetal baremetal7 kernels image help emu emu-test emu-e2e
 

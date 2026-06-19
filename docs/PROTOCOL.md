@@ -46,9 +46,20 @@ Every command is a single **32-bit word, big-endian**. The top three bits
 | `XY` | `0x2` | `blank=1` move the beam; `blank=0` draw to the point |
 | `QUALITY` | `0x3` | Render hint — ignored (geometry is unaffected) |
 | `FRAME` | `0x4` | Start a new frame; remember its beam-travel length |
-| `CMD` | `0x5` | Device command channel — not used by the pitrex variant; ignored |
-| `EXT` | `0x6` | Reserved extensions container — ignored (forward-compatible) |
+| `CMD` | `0x5` | Device command channel — answers the v2 `HELLO` probe (below); other subcommands ignored |
+| `EXT` | `0x6` | v2 extensions container — decoded (`HEIGHTFIELD`/`POLYLINE`); unknown subtypes skipped by length |
 | `EXIT` | `0x7` | Session over |
+
+### 2.1 v2 extensions
+
+vekterm decodes the backward-compatible v2 extensions — the `EXT` container
+(`HEIGHTFIELD`, `POLYLINE`) and the `CMD` `HELLO` capability probe it answers
+with a 12-byte descriptor so a sender can detect a v2 device and switch to the
+compact encodings. A sender only uses them after that handshake, so v1 senders
+are unaffected. The full specification is in pyvterm's
+[`docs/PROTOCOL-EXTENSIONS.md`](https://github.com/anarkiwi/pyvterm/blob/main/docs/PROTOCOL-EXTENSIONS.md);
+the decoders are in [`src/protocol.c`](../src/protocol.c) and
+[`src/frame.c`](../src/frame.c).
 
 `RGB`, `XY`, and the payload layouts are decoded in `vt_decode_word`
 ([`src/protocol.c`](../src/protocol.c)):

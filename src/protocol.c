@@ -86,6 +86,44 @@ uint32_t vt_encode_exit(void)
     return (uint32_t)VT_FLAG_EXIT << VT_FLAG_SHIFT;
 }
 
+uint32_t vt_encode_ext(uint8_t subtype, uint32_t length)
+{
+    return ((uint32_t)VT_FLAG_EXT << VT_FLAG_SHIFT) |
+           (((uint32_t)subtype & VT_EXT_SUBTYPE_MASK) << VT_EXT_SUBTYPE_SHIFT) |
+           (length & VT_EXT_LENGTH_MASK);
+}
+
+uint8_t vt_ext_subtype(uint32_t word)
+{
+    return (uint8_t)((word >> VT_EXT_SUBTYPE_SHIFT) & VT_EXT_SUBTYPE_MASK);
+}
+
+uint32_t vt_ext_length(uint32_t word)
+{
+    return word & VT_EXT_LENGTH_MASK;
+}
+
+bool vt_is_hello(uint32_t word)
+{
+    return vt_word_flag(word) == VT_FLAG_CMD && (word & 0xFFu) == VT_CMD_HELLO;
+}
+
+void vt_encode_hello_descriptor(uint8_t out[VT_HELLO_LEN])
+{
+    out[0] = VT_HELLO_MAGIC0; /* 'V' */
+    out[1] = VT_HELLO_MAGIC1; /* 'K' */
+    out[2] = (uint8_t)VT_PROTO_VERSION;
+    out[3] = (uint8_t)(VT_CAP_HEIGHTFIELD | VT_CAP_POLYLINE | VT_CAP_INTENSITY);
+    out[4] = (uint8_t)VT_COORD_BITS_ADVERTISED; /* coord bits */
+    out[5] = 8;                                 /* brightness bits */
+    out[6] = (uint8_t)(VT_MAX_PIPELINE >> 8);
+    out[7] = (uint8_t)(VT_MAX_PIPELINE & 0xFFu);
+    out[8] = (uint8_t)(VT_EXT_MAX >> 8);
+    out[9] = (uint8_t)(VT_EXT_MAX & 0xFFu);
+    out[10] = (uint8_t)VT_REFRESH_HZ_ADVERTISED;
+    out[11] = 0; /* reserved */
+}
+
 uint8_t vt_scale_color(int value)
 {
     int scaled;

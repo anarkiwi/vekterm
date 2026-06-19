@@ -61,6 +61,7 @@ static vt_sink recording_sink(void)
     sink.ctx = &g_rec;
     sink.on_frame = rec_on_frame;
     sink.on_exit = rec_on_exit;
+    sink.on_query = NULL;
     return sink;
 }
 
@@ -102,6 +103,7 @@ static void test_null_sink_callbacks_are_safe(void)
     sink.ctx = NULL;
     sink.on_frame = NULL;
     sink.on_exit = NULL;
+    sink.on_query = NULL;
     vt_parser_init(&p, sink);
 
     feed_word(&p, vt_encode_frame(0));
