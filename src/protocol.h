@@ -44,6 +44,55 @@ typedef enum {
 #define VT_PAYLOAD_MASK 0x1FFFFFFFu       /* Bits available below the flag.          */
 #define VT_COMPLETE_MONOCHROME (1u << 28) /* OR'd into COMPLETE for B&W games. */
 
+/*
+ * v2 extensions (docs/PROTOCOL-EXTENSIONS.md).  The EXT word carries a 5-bit
+ * subtype and a 24-bit payload byte-length; the byte-packed payload follows.
+ */
+#define VT_EXT_SUBTYPE_SHIFT 24
+#define VT_EXT_SUBTYPE_MASK 0x1Fu
+#define VT_EXT_LENGTH_MASK 0xFFFFFFu
+
+typedef enum {
+    VT_EXT_HEIGHTFIELD = 0x01, /* Gridded scan; X implicit, ~1 byte/point.       */
+    VT_EXT_POLYLINE = 0x02     /* Absolute anchor + signed deltas, ~2 bytes/pt.  */
+} vt_ext_subtype_id;
+
+/*
+ * Capability negotiation.  A sender writes the HELLO probe (a CMD word with the
+ * 'V' subcommand); vekterm replies with a fixed VT_HELLO_LEN-byte descriptor so
+ * the sender can detect a v2 device with zero allocation.
+ */
+#define VT_CMD_HELLO 0x56u /* CMD subcommand byte ('V'); != AdvanceMAME GET_DVG_INFO=1. */
+#define VT_PROTO_VERSION 2u
+#define VT_HELLO_LEN 12
+#define VT_HELLO_MAGIC0 0x56u /* 'V' */
+#define VT_HELLO_MAGIC1 0x4Bu /* 'K' */
+
+/* Capability bitmap bits in the HELLO descriptor (byte 3). */
+#define VT_CAP_HEIGHTFIELD 0x01u
+#define VT_CAP_POLYLINE 0x02u
+#define VT_CAP_INTENSITY 0x04u
+#define VT_CAP_FRAME_DELTA 0x08u
+
+/* Values advertised in the HELLO descriptor. */
+#define VT_COORD_BITS_ADVERTISED 12 /* device grid is 0..4095 (12-bit DAC).      */
+#define VT_REFRESH_HZ_ADVERTISED 50 /* the Vectrex 50 Hz refresh.                */
+
+/* Largest EXT payload the parser will buffer (advertised as max_payload). */
+#ifndef VT_EXT_MAX
+#define VT_EXT_MAX 8192u
+#endif
+
+/*
+ * Maximum vectors buffered per frame, advertised as max_pipeline and used by
+ * frame.h to size the frame buffer.  Matches the receiver's MAX_PIPELINE in
+ * pitrex/vectrex/vectrexInterface.h.  Defined here (the protocol layer) so the
+ * HELLO descriptor and the frame buffer share one source of truth.
+ */
+#ifndef VT_MAX_PIPELINE
+#define VT_MAX_PIPELINE 3000
+#endif
+
 /* Device resolution: the 12-bit DAC grid that XY coordinates address. */
 #define VT_DVG_RES_MIN 0
 #define VT_DVG_RES_MAX 4095
@@ -87,6 +136,19 @@ uint32_t vt_encode_frame(uint32_t vector_length);
 uint32_t vt_encode_quality(uint32_t value);
 uint32_t vt_encode_complete(bool monochrome);
 uint32_t vt_encode_exit(void);
+
+/* EXT container header word for a byte-packed payload of `length` bytes. */
+uint32_t vt_encode_ext(uint8_t subtype, uint32_t length);
+
+/* Pull the subtype / payload byte-length out of an EXT header word. */
+uint8_t vt_ext_subtype(uint32_t word);
+uint32_t vt_ext_length(uint32_t word);
+
+/* True if `word` is the CMD HELLO capability probe a sender writes to detect us. */
+bool vt_is_hello(uint32_t word);
+
+/* Write the fixed VT_HELLO_LEN-byte capability descriptor (the HELLO reply). */
+void vt_encode_hello_descriptor(uint8_t out[VT_HELLO_LEN]);
 
 /*
  * Scale a ~4-bit colour channel to 8 bits, clamped to 255 (zvgFrameSetRGB15:

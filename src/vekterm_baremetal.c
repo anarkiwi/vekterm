@@ -97,16 +97,38 @@
 #define VT_RX_SPINS 5000000u
 #endif
 
-/* Double-buffered active frame: the parser fills it on COMPLETE, the draw loop
- * renders it every refresh. */
-static vt_frame g_active;
+/* One vector with coordinates already mapped to the Vectrex integrator range.
+ * Mapping at COMPLETE (once) rather than every refresh keeps the per-vector
+ * 64-bit multiply/divide out of the 50 Hz draw loop — see PROTOCOL-EXTENSIONS.md
+ * §8. */
+typedef struct {
+    int16_t x0, y0, x1, y1;
+    uint8_t z;
+} draw_seg;
+
+/* Active draw list: the parser fills it on COMPLETE, the draw loop renders it
+ * every refresh. */
+static draw_seg g_draw[VT_MAX_PIPELINE];
+static int g_draw_count;
 static int g_have_frame;
 static volatile int g_new_frame; /* set by on_frame when a COMPLETE arrives */
 
 static void on_frame(void *ctx, const vt_frame *frame)
 {
+    int i;
     (void)ctx;
-    g_active = *frame;
+    /* Map device coords (0..4095) onto the Vectrex range once, here, so the
+     * refresh loop just feeds v_directDraw32 with no arithmetic per vector. */
+    for (i = 0; i < frame->count; i++) {
+        const vt_segment *s = &frame->segments[i];
+        draw_seg *d = &g_draw[i];
+        d->x0 = (int16_t)vt_map_coord(s->x0, VT_VECTREX_MIN, VT_VECTREX_MAX);
+        d->y0 = (int16_t)vt_map_coord(s->y0, VT_VECTREX_MIN, VT_VECTREX_MAX);
+        d->x1 = (int16_t)vt_map_coord(s->x1, VT_VECTREX_MIN, VT_VECTREX_MAX);
+        d->y1 = (int16_t)vt_map_coord(s->y1, VT_VECTREX_MIN, VT_VECTREX_MAX);
+        d->z = (uint8_t)(s->brightness >> VT_BRIGHT_SHIFT);
+    }
+    g_draw_count = frame->count;
     g_have_frame = 1;
     g_new_frame = 1;
 }
@@ -115,6 +137,19 @@ static void on_exit(void *ctx)
 {
     /* Baremetal has no OS to return to; keep holding the last frame. */
     (void)ctx;
+}
+
+/* Answer the HELLO capability probe on the mini-UART TX so a sender can detect a
+ * v2 vekterm and switch to the compact EXT subtypes. */
+static void on_query(void *ctx)
+{
+    uint8_t descriptor[VT_HELLO_LEN];
+    int i;
+    (void)ctx;
+    vt_encode_hello_descriptor(descriptor);
+    for (i = 0; i < VT_HELLO_LEN; i++) {
+        RPI_AuxMiniUartWrite(descriptor[i]);
+    }
 }
 
 /* Until the first frame arrives (e.g. nothing is connected to the UART yet),
@@ -143,14 +178,9 @@ static void draw_idle_splash(void)
 static void draw_active_frame(void)
 {
     int i;
-    for (i = 0; i < g_active.count; i++) {
-        const vt_segment *s = &g_active.segments[i];
-        int32_t x0 = vt_map_coord(s->x0, VT_VECTREX_MIN, VT_VECTREX_MAX);
-        int32_t y0 = vt_map_coord(s->y0, VT_VECTREX_MIN, VT_VECTREX_MAX);
-        int32_t x1 = vt_map_coord(s->x1, VT_VECTREX_MIN, VT_VECTREX_MAX);
-        int32_t y1 = vt_map_coord(s->y1, VT_VECTREX_MIN, VT_VECTREX_MAX);
-        uint8_t z = (uint8_t)(s->brightness >> VT_BRIGHT_SHIFT);
-        v_directDraw32(x0, y0, x1, y1, z);
+    for (i = 0; i < g_draw_count; i++) {
+        const draw_seg *d = &g_draw[i];
+        v_directDraw32(d->x0, d->y0, d->x1, d->y1, d->z);
     }
 }
 
@@ -182,6 +212,7 @@ int main(int argc, char **argv)
     sink.ctx = NULL;
     sink.on_frame = on_frame;
     sink.on_exit = on_exit;
+    sink.on_query = on_query;
     vt_parser_init(&parser, sink);
 
     /* Start each frame from a clean, byte-aligned state: the handshake means the

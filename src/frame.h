@@ -19,13 +19,10 @@
 #include "protocol.h"
 
 /*
- * Maximum vectors buffered per frame.  Matches the receiver's MAX_PIPELINE in
- * pitrex/vectrex/vectrexInterface.h; vectors beyond it are dropped and the
- * frame's `overflow` flag is set.
+ * VT_MAX_PIPELINE (the per-frame vector cap, beyond which vectors are dropped
+ * and the frame's `overflow` flag is set) is defined in protocol.h so the HELLO
+ * descriptor and this buffer share one value.
  */
-#ifndef VT_MAX_PIPELINE
-#define VT_MAX_PIPELINE 3000
-#endif
 
 /* Device-space center; the beam rests here after a recal, and an early lit XY
  * with no preceding move starts from here. */
@@ -52,8 +49,9 @@ typedef struct {
 /* Where finished frames and session end are delivered. */
 typedef struct {
     void *ctx;
-    void (*on_frame)(void *ctx, const vt_frame *frame); /* COMPLETE */
-    void (*on_exit)(void *ctx);                         /* EXIT     */
+    void (*on_frame)(void *ctx, const vt_frame *frame); /* COMPLETE          */
+    void (*on_exit)(void *ctx);                         /* EXIT              */
+    void (*on_query)(void *ctx);                        /* CMD HELLO probe   */
 } vt_sink;
 
 /* Streaming decoder state. */
@@ -70,6 +68,15 @@ typedef struct {
     int cur_y;
     bool have_pos;
     uint8_t brightness;
+
+    /* EXT container reassembly: after an EXT header word, payload bytes are
+     * gathered here until `ext_remaining` reaches 0, then dispatched by subtype.
+     * `ext_overflow` marks a payload too large for ext_buf (it is skipped). */
+    uint8_t ext_subtype;
+    uint32_t ext_remaining; /* payload bytes still expected (0 = not in EXT). */
+    uint32_t ext_len;       /* bytes gathered into ext_buf so far.           */
+    bool ext_overflow;
+    uint8_t ext_buf[VT_EXT_MAX];
 
     /* Frame under construction. */
     vt_frame frame;

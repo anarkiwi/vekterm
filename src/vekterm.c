@@ -48,6 +48,7 @@ typedef struct {
     void *backend_ctx;
     unsigned long frames;
     bool exit_seen;
+    int out_fd; /* where to write the HELLO reply, or -1 if the source is read-only */
 } app_state;
 
 static void app_on_frame(void *ctx, const vt_frame *frame)
@@ -60,6 +61,22 @@ static void app_on_frame(void *ctx, const vt_frame *frame)
 static void app_on_exit(void *ctx)
 {
     ((app_state *)ctx)->exit_seen = true;
+}
+
+/* Answer the HELLO capability probe by writing the descriptor back to the
+ * source (a serial port).  Best-effort: a read-only file source has no return
+ * channel, so out_fd is -1 and we skip it. */
+static void app_on_query(void *ctx)
+{
+    app_state *app = (app_state *)ctx;
+    uint8_t descriptor[VT_HELLO_LEN];
+    if (app->out_fd < 0) {
+        return;
+    }
+    vt_encode_hello_descriptor(descriptor);
+    if (write(app->out_fd, descriptor, sizeof descriptor) < 0) {
+        /* The far end may not be reading; detection is best-effort. */
+    }
 }
 
 static void usage(const char *argv0)
@@ -126,9 +143,11 @@ static int run_selftest(const vt_options *opt)
     app.backend_ctx = ctx;
     app.frames = 0;
     app.exit_seen = false;
+    app.out_fd = -1;
     sink.ctx = &app;
     sink.on_frame = app_on_frame;
     sink.on_exit = app_on_exit;
+    sink.on_query = app_on_query;
     vt_parser_init(&parser, sink);
 
     for (i = 0; i < sizeof words / sizeof words[0]; i++) {
@@ -270,9 +289,13 @@ int main(int argc, char **argv)
     app.backend_ctx = backend_ctx;
     app.frames = 0;
     app.exit_seen = false;
+    /* Only a serial port (opened RDWR) has a return channel for the HELLO reply;
+     * a file/stdin replay (--input) is read-only. */
+    app.out_fd = (input == NULL) ? fd : -1;
     sink.ctx = &app;
     sink.on_frame = app_on_frame;
     sink.on_exit = app_on_exit;
+    sink.on_query = app_on_query;
     vt_parser_init(&parser, sink);
 
     signal(SIGINT, on_signal);

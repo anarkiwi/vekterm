@@ -13,6 +13,7 @@ build.baremetal/
 /tests/test_frame
 /tests/test_coord
 /tests/test_parser
+/tests/test_ext
 
 # OS / editor cruft
 .DS_Store

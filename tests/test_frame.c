@@ -42,6 +42,7 @@ static vt_sink recording_sink(void)
     sink.ctx = &g_rec;
     sink.on_frame = rec_on_frame;
     sink.on_exit = rec_on_exit;
+    sink.on_query = NULL;
     return sink;
 }
 
@@ -176,13 +177,14 @@ static void test_exit_ends_session(void)
 
 static void test_unknown_words_are_ignored(void)
 {
-    /* A CMD word and a reserved EXT container must not disturb decoding. */
+    /* A non-HELLO CMD word and an empty EXT container of an unrecognised subtype
+     * must not disturb decoding (EXT subtype handling is covered in test_ext). */
     vt_parser p;
     vt_parser_init(&p, recording_sink());
     feed_word(&p, vt_encode_frame(0));
     feed_word(&p, ((uint32_t)VT_FLAG_CMD << VT_FLAG_SHIFT) | 0x1234u);
     feed_word(&p, vt_encode_rgb(0xF0, 0xF0, 0xF0));
-    feed_word(&p, ((uint32_t)VT_FLAG_EXT << VT_FLAG_SHIFT) | 0x5678u);
+    feed_word(&p, vt_encode_ext(0x1F, 0)); /* unknown subtype, no payload */
     feed_word(&p, vt_encode_xy(100, 100, true));
     feed_word(&p, vt_encode_xy(300, 300, false));
     feed_word(&p, vt_encode_complete(false));
