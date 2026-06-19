@@ -60,13 +60,21 @@ USB-TTL adapter to the Pi header, crossing Tx↔Rx:
 | Host adapter | Pi Zero header |
 | --- | --- |
 | TX  | pin 10 = GPIO15 (RXD) |
-| RX  | pin 8  = GPIO14 (TXD) — optional, for boot diagnostics |
+| RX  | pin 8  = GPIO14 (TXD) — **required** (carries the flow-control "ready" byte) |
 | GND | pin 6  = GND |
 
-The adapter must be **3.3 V (never 5 V)** and keep up with the line rate. The
-default is **2 Mbaud** (matching pyvterm's default); a genuine FTDI FT232R or
-CP2102N handles it. If yours is flaky, rebuild for a slower, rock-solid link with
-`VEKTERM_CFLAGS='-DVT_UART_BAUD=115200'` and set pyvterm's `baudrate=115200`.
+The adapter must be **3.3 V (never 5 V)**. **Wire RX too** (not just TX): vekterm
+paces the sender with a per-frame handshake over its TX line — the Pi's 8-byte
+mini-UART FIFO can't otherwise keep up while it draws, and a single dropped byte
+desyncs the stream. pyvterm must run with **flow control on** (`--flow-control`,
+or `flow_control=0x06` on the terminal).
+
+The default line rate is **1,280,000 baud** — fast, and chosen because it's exact
+from the pinned 256 MHz core *and* reliable over real 3.3 V USB-TTL wiring (2 Mbaud
+is exact too but proved marginal — bit errors corrupt frames). A genuine FTDI
+FT232R or CP2102N is recommended. To go faster/slower, rebuild with
+`VEKTERM_CFLAGS='-DVT_UART_BAUD=…'` (exact at 256 MHz: 2.0M, 1.6M, 1.28M, 1.0M,
+800k, 640k, 500k; or `115200` for a rock-solid slow link) and match the sender.
 
 ## Step 4 — Boot
 
@@ -78,15 +86,18 @@ listening. The splash clears as soon as the first frame arrives. On the host:
 ```bash
 pip install pyvterm
 python -c "
-from pyvterm import VectorTerminal
-with VectorTerminal(port='/dev/ttyUSB0', baudrate=2000000) as vt:  # your adapter's port
+from pyvterm import VectorTerminal, DEFAULT_SYNC_BYTE
+with VectorTerminal(port='/dev/ttyUSB0', baudrate=1280000,
+                    flow_control=DEFAULT_SYNC_BYTE) as vt:  # your adapter's port
     with vt.frame():
         vt.set_intensity(15)
         vt.polyline([(-200,-200),(200,-200),(200,200),(-200,200)], closed=True)
 "
 ```
 
-A square should appear on the Vectrex.
+A square should appear on the Vectrex. (`flow_control` is the handshake; without
+it the sender overruns the receiver and nothing draws.) pyvterm's
+`examples/testpattern.py --flow-control` draws a calibration grid to start from.
 
 ## Calibration
 
@@ -98,7 +109,7 @@ options; set them via `VEKTERM_CFLAGS` (Docker) or `EXTRA_CFLAGS` (local
 | --- | --- | --- |
 | `VT_VECTREX_MIN` / `VT_VECTREX_MAX` | Vectrex coords that device `0` / `4095` map to | `-10000` / `10000` |
 | `VT_BRIGHT_SHIFT` | beam intensity = brightness (0..255) `>> N` | `1` |
-| `VT_UART_BAUD` | serial line rate (must match the sender) | `2000000` |
+| `VT_UART_BAUD` | serial line rate (must match the sender; exact rates at 256 MHz only) | `1280000` |
 | `VT_REFRESH_HZ` | redraw rate handed to libpitrex | `50` |
 
 ```bash
@@ -116,10 +127,33 @@ The FAT partition holds the stock Raspberry Pi firmware plus our kernel:
 | File | Purpose |
 | --- | --- |
 | `bootcode.bin`, `start.elf`, `fixup.dat` | Raspberry Pi firmware (fetched from raspberrypi/firmware) |
-| [`config.txt`](../deploy/config.txt) | GPIO setup for the VIA, pins the core clock for a stable UART |
+| [`config.txt`](../deploy/config.txt) | GPIO setup for the VIA, pins the core clock at 256 MHz so the mini-UART baud is exact |
 | `kernel.img` | vekterm itself |
 
 There is deliberately **no** Linux kernel, initramfs, or root filesystem.
+
+### The serial link (why flow control)
+
+vekterm reads a raw mini-UART with only an **8-byte RX FIFO**, and it spends most
+of each frame *drawing* (not reading the UART), so at any real line rate the FIFO
+would overflow and drop bytes — and the stream has no byte-level resync, so one
+dropped byte corrupts everything after it. So the link is **flow-controlled**,
+the way the official PiTrex `vterm` paces MAME: vekterm sends a one-byte "ready"
+(`0x06`) on its TX when it can receive, and the sender transmits exactly one
+frame per ready. Nothing then arrives while vekterm draws. (vekterm also drains
+the FIFO into a 16 KB ring buffer and re-aligns the parser at each frame
+boundary for good measure.) The whole pipeline — pyvterm's encoder + handshake,
+the wire, vekterm's receive/parse/draw — is proven end-to-end off-hardware by
+`make emu-e2e` (see [`EMULATOR.md`](EMULATOR.md)); the only thing that needs real
+silicon is the electrical layer, which is why the default baud is a reliable
+1.28M rather than the marginal 2M.
+
+The core clock is pinned at **256 MHz** (not the more common 250) on purpose: the
+mini-UART baud is `core / (8 × (divisor+1))` with the divisor truncated, and the
+2 Mbaud default is only exact at 256 MHz (`256e6/(8·16)`). For the full boot
+sequence, the official PiTrex/`vterm` flow, and this clocking, see
+[`BOOT.md`](BOOT.md); to see what vekterm draws without hardware, see
+[`EMULATOR.md`](EMULATOR.md).
 
 ## Building locally (without Docker)
 
@@ -145,7 +179,8 @@ provenance and licensing.
 | No splash, blank screen | The board isn't running (or can't drive the Vectrex). Re-seat the card; confirm `out/vekterm.img` flashed cleanly. Connect the host RX to Pi TX (GPIO14) to watch the "PiTrex starting…" boot message. |
 | Splash shows but no vectors after connecting | The receiver is alive; the link or the sender is the issue. Confirm the sender is on **GPIO15 (RX)**, sharing **GND**, at the baud shown on the splash. |
 | Splash and vectors but mispositioned/dim | Calibration: widen `VT_VECTREX_MAX`, lower `VT_BRIGHT_SHIFT`. |
-| Garbled / no vectors over serial | Baud mismatch or a marginal adapter at 2 Mbaud. Rebuild with `-DVT_UART_BAUD=115200` and set the sender to 115200. |
+| Splash, but blank when streaming | Sender not using flow control (`--flow-control`), or RX wire (Pi TX→adapter) missing. Both are required — see Step 3. |
+| Blank/garbled at a high baud | Marginal wiring at that rate. Drop a step (e.g. 1.28M→1.0M); `-DVT_UART_BAUD=115200` is bulletproof. Match the sender. |
 | Nothing on a Pi Zero 2 W | The firmware loads `kernel7.img` on that board (`config.txt` `[pi02]`). Confirm both `kernel.img` and `kernel7.img` are on the card. The Pi 4/5 are **not** supported (different firmware/base). |
 | Want to test without a Vectrex | `./vekterm --dry-run` (host build) decodes and reports without any hardware. |
 

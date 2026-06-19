@@ -42,9 +42,23 @@ HOST_HDR := src/serial.h src/backend.h $(CORE_HDR)
 
 TESTS := tests/test_protocol tests/test_frame tests/test_coord tests/test_parser
 
-.PHONY: all test check clean format format-check docker baremetal baremetal7 kernels image help
+.PHONY: all test check clean format format-check docker baremetal baremetal7 kernels image help emu emu-test emu-e2e
 
 all: vekterm
+
+# ---- off-target emulator (the VIA/Vectrex model + vekterm's real draw path) --
+# Runs the vendored libpitrex drawing code against a software 6522 VIA + Vectrex
+# vector generator, reconstructing what the CRT would show — no ARM toolchain, no
+# QEMU, no Vectrex. `make emu` builds it; `make emu-test` renders + checks the
+# splash and a known square. See docs/EMULATOR.md.
+emu:
+	tools/emu/build.sh
+
+emu-e2e:
+	tools/emu/e2e.sh
+
+emu-test:
+	tools/emu/selftest.sh
 
 vekterm: $(HOST_SRC) $(HOST_HDR)
 	$(CC) $(CFLAGS) -o $@ $(HOST_SRC) $(LDFLAGS)
@@ -113,7 +127,7 @@ BM_PITREX_C  := bcm2835 pitrexio-gpio
 BM_VECTREX_C := vectrexInterface osWrapper baremetalUtil
 # The baremetal runtime: C files compiled as C (only baremetalEntry.S is asm).
 BM_LOADER_C  := bareMetalMain cstubs rpi-armtimer rpi-aux rpi-gpio rpi-interrupts rpi-systimer
-BM_APP       := protocol frame vekterm_baremetal
+BM_APP       := protocol frame uart_rx vekterm_baremetal
 
 baremetal:  kernel.img
 baremetal7: kernel7.img
@@ -176,6 +190,7 @@ clean:
 	rm -f vekterm $(TESTS)
 	rm -f kernel.img kernel7.img vekterm.img
 	rm -rf build.baremetal
+	rm -rf out-emu
 	rm -rf vekterm.dSYM tests/*.dSYM
 
 help:

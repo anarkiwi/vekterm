@@ -32,10 +32,21 @@ here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-echo "==> Fetching Raspberry Pi firmware (${RPI_FW_REF})"
-for f in $FW_FILES; do
-	curl -fsSL "$FW_BASE/$f" -o "$work/$f"
-done
+# Firmware source: a local directory (RPI_FW_DIR) takes precedence over fetching,
+# so you can pin the exact bytes from a known-good card (the official PiTrex
+# distribution ships a specific firmware build; newer firmware has been seen to
+# stop baremetal kernels booting on the Pi Zero 2 W).
+if [ -n "${RPI_FW_DIR:-}" ]; then
+	echo "==> Using local Raspberry Pi firmware from ${RPI_FW_DIR}"
+	for f in $FW_FILES; do
+		cp "$RPI_FW_DIR/$f" "$work/$f"
+	done
+else
+	echo "==> Fetching Raspberry Pi firmware (${RPI_FW_REF})"
+	for f in $FW_FILES; do
+		curl -fsSL "$FW_BASE/$f" -o "$work/$f"
+	done
+fi
 
 echo "==> Staging boot files"
 cp "$KERNEL"  "$work/kernel.img"

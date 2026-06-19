@@ -29,13 +29,21 @@ gpio=24=np
 # official PiTrex distribution ships this line commented out, so we do too.
 #dtoverlay=dwc2,dr_mode=host
 
-# Clocking matches the official PiTrex baremetal distribution (proven to boot on
-# both the Pi Zero and the Zero 2 W): enable the mini-UART on the header, pin the
-# core clock at 250 MHz, and force turbo so it can't scale. The baremetal runtime
-# is built to compute the mini-UART divisor from this same 250 MHz core clock
-# (see VT_UART_CLOCK / bareMetalMain.c), so the serial baud comes out correct.
+# Clocking: enable the mini-UART on the header, pin the core clock, and force
+# turbo so it can't scale (the mini-UART is clocked by the core, so an unpinned
+# core makes the baud drift). The runtime derives the mini-UART divisor from this
+# exact value (VT_UART_CLOCK in src/vekterm_baremetal.c, the banner clock in
+# bareMetalMain.c), so config.txt and the kernel MUST agree on the core clock.
+#
+# We pin 256 MHz (not the official distribution's 250) on purpose: the mini-UART
+# data rates vekterm uses must divide cleanly from the core, and 256 MHz gives
+# exact divisors for a useful family (2.0M, 1.6M, 1.28M, 1.0M, 800k, 640k, 500k:
+# 256e6/(8*N)). The default 1,280,000 baud is 256e6/(8*25). At 250 MHz those
+# rates truncate the divisor and run a few % fast, past 8N1 tolerance, so frames
+# never decode. 256 vs 250 MHz does not affect booting or the (ARM-clock-derived)
+# VIA timing.
 enable_uart=1
-core_freq=250
+core_freq=256
 force_turbo=1
 
 # Boot the 32-bit (ARMv6/ARMv7) kernels, not a 64-bit one.

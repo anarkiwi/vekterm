@@ -63,6 +63,31 @@ Small, guarded fixes are baked in (search for `vekterm-vendor:`):
   device-tree to detect the SoC at runtime, so the BCM2837 (Pi Zero 2 W) build
   needs the base set at compile time — matching the gating already present in
   `rpi-base.h` and `lib2835/bcm2835.h`. Required for the `kernel7.img` build.
+- `baremetal/bareMetalMain.c` — set the boot-banner mini-UART baud from the
+  actual (config-pinned) core clock instead of the upstream 400 MHz assumption,
+  and bring the mini-UART up **unconditionally** (upstream only did so when the
+  ARM clock wasn't already at target, which on a `force_turbo` Pi Zero 2 W meant
+  the UART was never initialised and the board emitted nothing). See
+  [`docs/BOOT.md`](../../docs/BOOT.md).
+- `baremetal/baremetalEntry.S` — ARMv7-only (`__arm__`/ARMv7) reset additions for
+  the Pi Zero 2 W: drop from HYP mode to SVC via `eret` (the firmware launches the
+  kernel in HYP and `msr CPSR_c` can't leave it), park the secondary cores, and
+  enable the cycle counter via the ARMv7 PMU. ARMv6 (Pi Zero) is unchanged.
+- `vectrex/baremetalUtil.h` — use the ARMv7 PMU (`c9`) for the cycle counter on
+  Cortex-A; the ARM11 (`c15`) registers it used are undefined there and trapped
+  as an undefined instruction. Both: see [`docs/BOOT.md`](../../docs/BOOT.md).
+- `baremetal/rpi-interrupts.{c,h}` — add an optional `RPI_aux_irq_handler` hook so
+  the mini-UART RX interrupt can be serviced (used opt-in by `src/uart_rx.c`); the
+  vendored vector otherwise assumes only the ARM timer. Null/unused by default.
+- `pitrex/pitrexio-gpio.c` — print whether `#HALT` is asserted at `vectrexinit`
+  (i.e. whether a Vectrex is on the cartridge bus), a useful one-line boot
+  diagnostic.
+- `vectrex/vectrexInterface.h` — guard the two `WAIT_CYCLE_NANO` cycle-delay
+  busy-loops (ARM inline asm) on `__arm__`, with a no-op fallback off-target.
+  This lets the **off-target emulator** ([`tools/emu`](../../tools/emu)) compile
+  the real drawing code on a host (x86) to render what the Vectrex would show
+  (see [`docs/EMULATOR.md`](../../docs/EMULATOR.md)). The delays are pure timing;
+  the ARM build is byte-for-byte unaffected.
 
 Toolchain-compatibility *flags* (not source edits) live in the top-level
 `Makefile`: `-fcommon` (GCC ≥ 10 defaults to `-fno-common`) and

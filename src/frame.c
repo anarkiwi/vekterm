@@ -36,6 +36,16 @@ void vt_parser_init(vt_parser *parser, vt_sink sink)
     vt_parser_reset_frame(parser);
 }
 
+void vt_parser_resync(vt_parser *parser)
+{
+    /* Drop any partial word so the next byte starts a fresh 4-byte word. Used at
+     * a known frame boundary (the flow-control handshake) to recover word
+     * alignment if the stream ever slipped a byte. */
+    if (parser != NULL) {
+        parser->nbytes = 0;
+    }
+}
+
 static void emit_lit(vt_parser *parser, uint16_t x, uint16_t y)
 {
     int sx = parser->have_pos ? parser->cur_x : VT_DEV_CENTER;

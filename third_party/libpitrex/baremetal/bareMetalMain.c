@@ -21,21 +21,31 @@ void  kernelMain( unsigned int r0, unsigned int r1, unsigned int atags )
     if (arm_clock != 1000000000)
     {
       lib_bcm2835_vc_set_clock_rate(BCM2835_VC_CLOCK_ID_ARM, 1000000000);
-      /* vekterm-vendor: the mini-UART is clocked by the VPU/core clock, which
-       * deploy/config.txt pins at core_freq=250 MHz. The boot banner uses
-       * 921600 baud to match the official PiTrex distribution (so one terminal
-       * rate reads both). 250 MHz / (8 * (div+1)) with div=33 gives 919117,
-       * within 0.3% of 921600; pass an effective clock that lands the integer
-       * divisor on 33. (Upstream assumed a 400 MHz core and 115200 here.) */
-      RPI_AuxMiniUartInit( 921600, 8, 250675200);
     }
+    /* vekterm-vendor: ALWAYS bring up the mini-UART, regardless of the ARM clock.
+     * Upstream only initialised it inside the `arm_clock != target` branch — but
+     * deploy/config.txt sets force_turbo=1, so the firmware brings the Pi Zero 2 W
+     * up at exactly its 1 GHz turbo frequency *before* the kernel runs. That made
+     * the condition false, so RPI_AuxMiniUartInit was skipped, the mini-UART was
+     * never configured (AUX disabled, GPIO14/15 not in ALT5), and there was NO
+     * boot output at all — the "doesn't boot, no messages" symptom. Initialising
+     * unconditionally is correct: UART bring-up is independent of the CPU clock.
+     *
+     * The mini-UART is clocked by the VPU/core clock, which deploy/config.txt
+     * pins at core_freq=256 MHz (so vekterm's 2 Mbaud data link is exact — see
+     * src/vekterm_baremetal.c). The banner uses 921600 baud to match the official
+     * PiTrex distribution; RPI_AuxMiniUartInit truncates the divisor
+     * (mhz/(8*baud)-1), and 256 MHz / (8 * 35) = 914286 is within 0.8% of 921600,
+     * so pass an effective clock that lands div+1 on 35. (Upstream assumed a
+     * 400 MHz core and 115200 here.) */
+    RPI_AuxMiniUartInit( 921600, 8, 258048000);
 #else
     if (arm_clock != 700000000)
     {
        lib_bcm2835_vc_set_clock_rate(BCM2835_VC_CLOCK_ID_ARM, 700000000);
-       RPI_AuxMiniUartInit( 115200, 8, 250000000);
     }
-#endif    
+    RPI_AuxMiniUartInit( 115200, 8, 250000000);
+#endif
     /* Print to the UART using the standard libc functions */
     printf("PiTrex starting...\r\n" );
     printf("BSS start: %X, end: %X\r\n", &__bss_start__, &__bss_end__);

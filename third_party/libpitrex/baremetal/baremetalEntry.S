@@ -66,6 +66,35 @@ irq_handler:		.word irq_callee
 fiq_handler:		.word fiq_callee
 
 reset_callee:
+#if defined(__ARM_ARCH_7A__)
+    @ vekterm-vendor: Pi 2/3/Zero 2 W (Cortex-A7/A53) bring-up. Their firmware
+    @ launches the kernel in HYP mode, and the `msr CPSR_c` mode setup below
+    @ cannot leave HYP (that needs an eret) — so the CPU stayed in HYP, the
+    @ stack/MMU/VFP setup ran in the wrong mode, and the kernel died before a
+    @ single UART byte (silent no-boot on the Zero 2 W). Drop HYP->SVC via eret,
+    @ then park the secondary cores so only core 0 runs this single-core app.
+    @ This mirrors the official PiTrex pitrex7.img. Guarded to ARMv7-A: the Pi
+    @ Zero (ARMv6) build has no HYP mode or SMP and is entered in SVC already.
+    mrs  r0, cpsr
+    and  r1, r0, #0x1f
+    cmp  r1, #0x1a				@ 0x1a = HYP mode
+    bne  1f
+    bic  r0, r0, #0x1f
+    orr  r0, r0, #(MODE_SVC | I_BIT | F_BIT)
+    msr  spsr_cxsf, r0				@ SPSR_hyp <- SVC, IRQ/FIQ off
+    adr  lr, 1f
+    @ `msr ELR_hyp, lr` then `eret` — the Virtualization-Extension mnemonics
+    @ aren't enabled by -march=armv7-a, so emit the exact encodings the official
+    @ pitrex7.img uses (objdump: e12ef30e / e160006e).
+    .inst 0xe12ef30e				@ msr ELR_hyp, lr
+    .inst 0xe160006e				@ eret -> SVC, continue at 1:
+1:  mrc  p15, 0, r0, c0, c0, 5			@ MPIDR
+    ands r0, r0, #3				@ core id (low 2 bits)
+    beq  2f					@ core 0 -> boot
+3:  wfe						@ cores 1-3 -> park forever
+    b    3b
+2:
+#endif
     @ Copy vectors to 0x0000, 16 words
     mov r0, #0x0000
     ldr r1, =_start
@@ -118,8 +147,15 @@ reset_callee:
 	
     @ "https://www.raspberrypi.org/forums/viewtopic.php?f=63&t=155830"
     @ enable access to cycle counter register
+#if defined(__ARM_ARCH_7A__)
+    @ vekterm-vendor: on Cortex-A (Pi Zero 2 W) the ARM11 c15,c9 register below is
+    @ UNDEFINED and traps; use the ARMv7 PMU user-enable PMUSERENR (c9,c14,0).
     mov	r0, #1
-    MCR p15, 0, r0, C15, C9, 0 @ enable user cycle count access
+    mcr p15, 0, r0, c9, c14, 0 @ PMUSERENR: user-mode PMU access
+#else
+    mov	r0, #1
+    MCR p15, 0, r0, C15, C9, 0 @ ARM11: enable user cycle count access
+#endif
 	
     b      kernelMain
 

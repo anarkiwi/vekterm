@@ -49,6 +49,9 @@ typedef struct {
 
 extern volatile int calculate_frame_count;
 
+/* vekterm-vendor: installed by src/uart_rx.c to service the mini-UART RX IRQ. */
+extern void (*RPI_aux_irq_handler)(void);
+
 /* Found in the *start.S file, implemented in assembler */
 extern void _enable_interrupts( void );
 extern rpi_irq_controller_t* RPI_GetIrqController( void );

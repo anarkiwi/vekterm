@@ -22,6 +22,12 @@ static rpi_irq_controller_t* rpiIRQController =
 
 volatile int calculate_frame_count = 0;
 
+/* vekterm-vendor: optional AUX (mini-UART/SPI) IRQ handler. The framework
+ * otherwise assumes only the ARM timer is enabled; vekterm enables the
+ * mini-UART RX interrupt and installs its FIFO-drain here (see src/uart_rx.c).
+ * Null when unused, so other programs built on this tree are unaffected. */
+void (*RPI_aux_irq_handler)(void) = 0;
+
 /**
     @brief Return the IRQ Controller register set
 */
@@ -121,6 +127,13 @@ void __attribute__((interrupt("IRQ"))) interrupt_vector(void)
     static int lit = 0;
     static int ticks = 0;
     static int seconds = 0;
+
+    /* vekterm-vendor: if the AUX (mini-UART) IRQ is pending and a handler is
+     * installed, service it and return. Reading the RX FIFO clears the source. */
+    if (RPI_aux_irq_handler && (RPI_GetIrqController()->IRQ_pending_1 & (1u << 29))) {
+        RPI_aux_irq_handler();
+        return;
+    }
 
     /* Clear the ARM Timer interrupt - it's the only interrupt we have
        enabled, so we want don't have to work out which interrupt source

@@ -454,7 +454,16 @@ do { \
   DELAY_XSH(); \
   } while (0)
 
-#ifdef VPU
+/* vekterm-vendor: the busy-wait delay loops below are written in ARM inline
+ * assembly. They are pure timing (cycle-counting spins) with no functional
+ * effect on the drawn geometry. Guard them on __arm__ so the same source also
+ * compiles for a host (x86) build — the off-target VIA/Vectrex emulator in
+ * tools/emu links the real drawing code unchanged and only needs the delays to
+ * be no-ops. The ARM build is byte-for-byte unaffected. */
+#if !defined(__arm__) && !defined(__thumb__)
+#define CYCLE_PER_LOOP 1
+#define WAIT_CYCLE_NANO(n) do{ (void)(n); } while(0)
+#elif defined(VPU)
 #define CYCLE_PER_LOOP 113
 #define WAIT_CYCLE_NANO(n) do{ \
     uint32_t l = (n/113)+1; \

@@ -5,6 +5,7 @@ build.baremetal/
 /kernel7.img
 /vekterm.img
 /out/
+/out-*/
 /frame.bin
 
 # Compiled unit tests (the .c sources are tracked)

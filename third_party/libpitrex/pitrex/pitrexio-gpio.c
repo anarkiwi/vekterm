@@ -967,12 +967,16 @@ int vectrexinit (char viaconfig)
 	 
 	 //Check that Vectrex CPU is halted.
 	 if (bcm2835_gpio_lev (27))
+	 {
+	  printf ("vectrexinit: #HALT not asserted (GPIO27 high) - no Vectrex on the bus; skipping VIA init\r\n");
 	  result = VECTREX_HALT_NOT_ASSERTED;
+	 }
 	 else
 	 {
 	  //Initialise 6522 (VIA) and AY3-8912 (PSG) in standard Vectrex start-up state (with reference to Vectrex BIOS "INITALL" routine):
 	  if (viaconfig == 1)
 	  {
+	   printf ("vectrexinit: #HALT asserted - initialising VIA (this WAITS on the Vectrex RDY line)\r\n");
 	   vectrexwrite (VIA_DDR_b, 0x9F); // Set all direction bits to Outputs except COMPARE input and PB6 at Cartridge Port
 	   vectrexwrite (VIA_DDR_a, 0xFF); // Set all direction bits to Outputs
 	   vectrexwrite (VIA_aux_cntl, 0x98); //Shift Reg. Enabled, T1 PB7 Enabled

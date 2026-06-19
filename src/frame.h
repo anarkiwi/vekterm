@@ -86,6 +86,10 @@ void vt_parser_init(vt_parser *parser, vt_sink sink);
 /* Discard the in-progress frame and reset beam/colour state. */
 void vt_parser_reset_frame(vt_parser *parser);
 
+/* Drop a partial word so the next byte begins a fresh 4-byte word (call at a
+ * known frame boundary to recover from a slipped byte). */
+void vt_parser_resync(vt_parser *parser);
+
 /* Feed a single already-assembled word through the state machine. */
 void vt_parser_feed_word(vt_parser *parser, uint32_t word);
 

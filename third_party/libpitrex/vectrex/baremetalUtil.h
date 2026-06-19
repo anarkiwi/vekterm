@@ -34,8 +34,24 @@
 #define CYCLE_COUNTER_RESET        (1<<2)  // reset cycle counter register
 #define CYCLE_COUNTER_DIVIDE_64    (1<<3)  // cycle count divider (64)
 
+/* vekterm-vendor: the ARM11 (Pi Zero) cycle-counter registers live in CP15 c15;
+ * on Cortex-A (Pi 2/3/Zero 2 W) those encodings are UNDEFINED and trap as an
+ * undefined instruction. Use the ARMv7 PMU (c9) there instead: PMCR (c9,c12,0)
+ * for control, PMCNTENSET (c9,c12,1) to enable PMCCNTR, PMUSERENR (c9,c14,0) for
+ * user access, and read the count from PMCCNTR (c9,c13,0). Matches the official
+ * PiTrex pitrex7.img. */
+#if defined(__ARM_ARCH_7A__)
+#define PMNC(v) do { \
+    unsigned int _pmnc_v = (v); \
+    asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(1u)); \
+    asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(_pmnc_v)); \
+    asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000u)); \
+  } while (0)
+#define CCNT(v)  asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(v))
+#else
 #define PMNC(v)  asm volatile("mcr p15, 0, %0, c15, c12, 0" :: "r"(v))
 #define CCNT(v)  asm volatile("mrc p15, 0, %0, c15, c12, 1" : "=r"(v))
+#endif
 
 void icache_disable(void);
 void dcache_disable(void);

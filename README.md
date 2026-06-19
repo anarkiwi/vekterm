@@ -110,6 +110,11 @@ pyvterm at the other end of that serial link and draw. The full walk-through
   point of view, with the byte-for-byte worked example the tests assert.
 - [`docs/DEPLOY.md`](docs/DEPLOY.md) — build, flash, wire, and boot a PiTrex into
   vekterm.
+- [`docs/BOOT.md`](docs/BOOT.md) — how a PiTrex boots baremetal (the official
+  distribution and its `vterm`, and vekterm), and the boot/clock/UART bug.
+- [`docs/EMULATOR.md`](docs/EMULATOR.md) — the off-target VIA/Vectrex emulator
+  ([`tools/emu`](tools/emu)): render what the Vectrex would show, no hardware.
+  `make emu-test`.
 
 ## Credits
 
