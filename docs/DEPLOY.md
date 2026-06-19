@@ -66,8 +66,8 @@ USB-TTL adapter to the Pi header, crossing Tx↔Rx:
 The adapter must be **3.3 V (never 5 V)**. **Wire RX too** (not just TX): vekterm
 paces the sender with a per-frame handshake over its TX line — the Pi's 8-byte
 mini-UART FIFO can't otherwise keep up while it draws, and a single dropped byte
-desyncs the stream. pyvterm must run with **flow control on** (`--flow-control`,
-or `flow_control=0x06` on the terminal).
+desyncs the stream. pyvterm has **flow control on by default** (it auto-detects
+the receiver), so just run it — no flag needed.
 
 The default line rate is **1,280,000 baud** — fast, and chosen because it's exact
 from the pinned 256 MHz core *and* reliable over real 3.3 V USB-TTL wiring (2 Mbaud
@@ -86,18 +86,17 @@ listening. The splash clears as soon as the first frame arrives. On the host:
 ```bash
 pip install pyvterm
 python -c "
-from pyvterm import VectorTerminal, DEFAULT_SYNC_BYTE
-with VectorTerminal(port='/dev/ttyUSB0', baudrate=1280000,
-                    flow_control=DEFAULT_SYNC_BYTE) as vt:  # your adapter's port
+from pyvterm import VectorTerminal
+with VectorTerminal(port='/dev/ttyUSB0', baudrate=1280000) as vt:  # your adapter's port
     with vt.frame():
         vt.set_intensity(15)
         vt.polyline([(-200,-200),(200,-200),(200,200),(-200,200)], closed=True)
 "
 ```
 
-A square should appear on the Vectrex. (`flow_control` is the handshake; without
-it the sender overruns the receiver and nothing draws.) pyvterm's
-`examples/testpattern.py --flow-control` draws a calibration grid to start from.
+A square should appear on the Vectrex. (Flow control is on by default; the
+handshake is what stops the sender overrunning the receiver.) pyvterm's
+`examples/testpattern.py` draws a calibration grid to start from.
 
 ## Calibration
 
@@ -179,7 +178,7 @@ provenance and licensing.
 | No splash, blank screen | The board isn't running (or can't drive the Vectrex). Re-seat the card; confirm `out/vekterm.img` flashed cleanly. Connect the host RX to Pi TX (GPIO14) to watch the "PiTrex starting…" boot message. |
 | Splash shows but no vectors after connecting | The receiver is alive; the link or the sender is the issue. Confirm the sender is on **GPIO15 (RX)**, sharing **GND**, at the baud shown on the splash. |
 | Splash and vectors but mispositioned/dim | Calibration: widen `VT_VECTREX_MAX`, lower `VT_BRIGHT_SHIFT`. |
-| Splash, but blank when streaming | Sender not using flow control (`--flow-control`), or RX wire (Pi TX→adapter) missing. Both are required — see Step 3. |
+| Splash, but blank when streaming | RX wire (Pi TX→adapter) missing — it carries the flow-control handshake (on by default in pyvterm). See Step 3. |
 | Blank/garbled at a high baud | Marginal wiring at that rate. Drop a step (e.g. 1.28M→1.0M); `-DVT_UART_BAUD=115200` is bulletproof. Match the sender. |
 | Nothing on a Pi Zero 2 W | The firmware loads `kernel7.img` on that board (`config.txt` `[pi02]`). Confirm both `kernel.img` and `kernel7.img` are on the card. The Pi 4/5 are **not** supported (different firmware/base). |
 | Want to test without a Vectrex | `./vekterm --dry-run` (host build) decodes and reports without any hardware. |

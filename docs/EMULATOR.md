@@ -72,7 +72,7 @@ second harness ([`tools/emu/emu_vekterm.c`](../tools/emu/emu_vekterm.c)) that ru
 the **actual `src/vekterm_baremetal.c` main loop** unmodified (the handshake, the
 UART receive, the flush/resync, the real parser, the real draw) against the VIA
 model, and connects it over a **PTY** to **real pyvterm** (its real
-`SerialTransport` with `--flow-control`, forked as a subprocess). Bytes flow
+`SerialTransport` with flow control on, forked as a subprocess). Bytes flow
 pyvterm → PTY → vekterm exactly as over a wire; only the lowest-level shims (the
 mini-UART/`uart_rx` read/write the PTY, the "system timer" reads the host clock)
 are substituted.

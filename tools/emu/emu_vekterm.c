@@ -10,7 +10,7 @@
  * host clock, and the VIA writes feed the model in via_vectrex.c.
  *
  * On the other end of the PTY we fork *real* pyvterm (examples/testpattern.py
- * with --flow-control), so the whole pipeline — pyvterm's encoder, its
+ * flow control on), so the whole pipeline — pyvterm's encoder, its
  * SerialTransport handshake, the wire, vekterm's receive/parse/draw — is
  * exercised exactly as on hardware, minus the 2 Mbaud electrical layer. If the
  * pattern renders here, the logic is proven correct.
@@ -185,8 +185,10 @@ int main(int argc, char **argv)
         close(master);
         if (chdir(pyvterm_dir) != 0) { perror("chdir pyvterm"); _exit(127); }
         setenv("PYTHONPATH", "src", 1);
+        /* pyvterm flow control is on by default; the PTY makes it detect the
+         * receiver's ready byte and stay in handshake mode. */
         execlp("python3", "python3", "examples/testpattern.py", "--port", slavename,
-               "--flow-control", "--frames", "40", "--intensity", "15",
+               "--frames", "40", "--intensity", "15",
                "--vectors", "4", "--fps", "120", (char *)NULL);
         perror("exec pyvterm");
         _exit(127);
