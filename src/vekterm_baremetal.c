@@ -23,6 +23,7 @@
 #include <rpi-systimer.h>         /* RPI_GetSystemTimer (1 MHz, for the RX timeout) */
 #include <vectrex/vectrexInterface.h>
 
+#include "font.h" /* vt_draw_string — Hershey Simplex vector text */
 #include "frame.h"
 #include "protocol.h"
 #include "uart_rx.h" /* interrupt-driven RX ring buffer */
@@ -222,16 +223,12 @@ static void append_u32(char *buf, int *pos, uint32_t v)
     }
 }
 
-/* Append s to buf at *pos, upper-casing ASCII and stopping before cap-1 (the
- * Vectrex BIOS font is uppercase-only; git output carries lowercase hex). */
-static void append_upper(char *buf, int *pos, const char *s, int cap)
+/* Append s to buf at *pos, stopping before cap-1 (the Hershey font has lower
+ * case, so git's lowercase hex commit/describe output is shown verbatim). */
+static void append_str(char *buf, int *pos, const char *s, int cap)
 {
     while (*s != '\0' && *pos < cap - 1) {
-        char c = *s++;
-        if (c >= 'a' && c <= 'z') {
-            c = (char)(c - 'a' + 'A');
-        }
-        buf[(*pos)++] = c;
+        buf[(*pos)++] = *s++;
     }
 }
 
@@ -245,11 +242,10 @@ static uint32_t g_cur_baud = VT_UART_BAUD;
 /* Until the first frame arrives (e.g. nothing is connected to the UART yet),
  * draw a splash so the operator can see the receiver booted, which build is
  * running, the active line rate, and that a button changes it — a blank screen
- * is indistinguishable from a dead board. The Vectrex BIOS font is
- * uppercase-only; coords are 8-bit, centred at 0,0 with +y up.
- * v_printString takes (x, y, string, textSize, brightness); it draws ~180 units
- * per glyph at textSize and positions at x*128. Tune the sizes with
- * -DVT_SPLASH_*_SIZE if your display differs. */
+ * is indistinguishable from a dead board. Coords are 8-bit, centred at 0,0 with
+ * +y up. vt_draw_string takes (x, y, string, size, brightness), drawing Hershey
+ * Simplex vector text (mixed case) at the baseline-left (x, y). Tune the sizes
+ * with -DVT_SPLASH_*_SIZE if your display differs. */
 #ifndef VT_SPLASH_TITLE_SIZE
 #define VT_SPLASH_TITLE_SIZE 8
 #endif
@@ -268,23 +264,23 @@ static void draw_idle_splash(void)
     char line[40];
     int pos;
 
-    v_printString(-58, 64, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, 64, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
 
     pos = 0;
-    append_upper(line, &pos, VT_GIT_VERSION " ", (int)sizeof line);
-    append_upper(line, &pos, VT_GIT_COMMIT, (int)sizeof line);
+    append_str(line, &pos, VT_GIT_VERSION " ", (int)sizeof line);
+    append_str(line, &pos, VT_GIT_COMMIT, (int)sizeof line);
     line[pos] = '\0';
-    v_printString(-58, 28, line, VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, 28, line, VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
 
-    v_printString(-58, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
 
     pos = 0;
     append_u32(line, &pos, g_cur_baud);
-    append_upper(line, &pos, " BAUD 8N1", (int)sizeof line);
+    append_str(line, &pos, " BAUD 8N1", (int)sizeof line);
     line[pos] = '\0';
-    v_printString(-58, -28, line, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, -28, line, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
 
-    v_printString(-58, -58, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, -58, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
 }
 
 static void draw_active_frame(void)

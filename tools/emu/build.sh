@@ -28,9 +28,10 @@ echo "==> compiling"
 "$CC" "${CF[@]}" -c "$here/emu_main.c"              -o "$out/main.o"
 "$CC" "${CF[@]}" -c "$root/src/protocol.c"          -o "$out/protocol.o"
 "$CC" "${CF[@]}" -c "$root/src/frame.c"             -o "$out/frame.o"
+"$CC" "${CF[@]}" -c "$root/src/font.c"              -o "$out/font.o"
 
 echo "==> linking"
-"$CC" "$out/vi.o" "$out/via.o" "$out/main.o" "$out/protocol.o" "$out/frame.o" \
+"$CC" "$out/vi.o" "$out/via.o" "$out/main.o" "$out/protocol.o" "$out/frame.o" "$out/font.o" \
     -lm -o "$out/vekterm-emu"
 "$CC" "${CF[@]}" "$here/gen_frame.c" "$root/src/protocol.c" -o "$out/gen_frame"
 
