@@ -18,7 +18,7 @@ jobs:
     name: clang-format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -38,7 +38,7 @@ jobs:
           - { os: ubuntu-latest, cc: gcc }
           - { os: ubuntu-latest, cc: clang }
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: compiler version
         run: ${{ matrix.cc }} --version
       - name: unit tests
@@ -48,7 +48,7 @@ jobs:
     name: Sanitizers (ASan + UBSan)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: unit tests under AddressSanitizer + UBSanitizer
         run: make test SAN=1
 
@@ -56,7 +56,7 @@ jobs:
     name: Host tool & smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: build host tool (stub backend)
         run: make
       - name: selftest
@@ -70,7 +70,7 @@ jobs:
     name: Baremetal image (Docker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: build kernel.img + vekterm.img in Docker
         run: make docker
       - name: verify artifacts
