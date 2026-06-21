@@ -62,7 +62,8 @@ typedef enum {
  * 'V' subcommand); vekterm replies with a fixed VT_HELLO_LEN-byte descriptor so
  * the sender can detect a v2 device with zero allocation.
  */
-#define VT_CMD_HELLO 0x56u /* CMD subcommand byte ('V'); != AdvanceMAME GET_DVG_INFO=1. */
+#define VT_CMD_HELLO 0x56u     /* CMD subcommand byte ('V'); != AdvanceMAME GET_DVG_INFO=1. */
+#define VT_CMD_KEEPALIVE 0x4Bu /* CMD subcommand byte ('K'): a null/keepalive ping. */
 #define VT_PROTO_VERSION 2u
 #define VT_HELLO_LEN 12
 #define VT_HELLO_MAGIC0 0x56u /* 'V' */
@@ -146,6 +147,13 @@ uint32_t vt_ext_length(uint32_t word);
 
 /* True if `word` is the CMD HELLO capability probe a sender writes to detect us. */
 bool vt_is_hello(uint32_t word);
+
+/* The CMD keepalive ("null message") word a sender writes to keep an idle
+ * receiver from timing out to its splash without re-sending a whole frame. */
+uint32_t vt_encode_keepalive(void);
+
+/* True if `word` is the CMD keepalive ping. */
+bool vt_is_keepalive(uint32_t word);
 
 /* Write the fixed VT_HELLO_LEN-byte capability descriptor (the HELLO reply). */
 void vt_encode_hello_descriptor(uint8_t out[VT_HELLO_LEN]);

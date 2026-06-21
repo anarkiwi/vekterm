@@ -148,17 +148,26 @@ static void render_ppm(const char *path, int fixed)
 
 /* ---- modes -------------------------------------------------------------- */
 #ifndef VT_SPLASH_TITLE_SIZE
-#define VT_SPLASH_TITLE_SIZE 8
+#define VT_SPLASH_TITLE_SIZE 6
 #endif
 #ifndef VT_SPLASH_TEXT_SIZE
-#define VT_SPLASH_TEXT_SIZE 4
+#define VT_SPLASH_TEXT_SIZE 3
+#endif
+#ifndef VT_SPLASH_VERSION_SIZE
+#define VT_SPLASH_VERSION_SIZE 2
+#endif
+#ifndef VT_SPLASH_HINT_SIZE
+#define VT_SPLASH_HINT_SIZE 2
 #endif
 static void draw_splash(void)
 {
-    /* mirrors vekterm_baremetal.c:draw_idle_splash() */
-    v_printString(-24, 30, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-40, -5, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-40, -40, VT_SPLASH_BAUD_LINE, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    /* mirrors vekterm_baremetal.c:draw_idle_splash() (static strings here: the
+     * git build id and live baud are runtime values on the real target). */
+    v_printString(-30, 56, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-50, 28, "DEV UNKNOWN", VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-50, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-50, -24, VT_SPLASH_BAUD_LINE, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-50, -52, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
 }
 
 static vt_frame g_frame;

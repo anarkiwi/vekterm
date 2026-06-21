@@ -27,7 +27,7 @@
 #include "protocol.h"
 #include "serial.h"
 
-#define VEKTERM_VERSION "0.1.0"
+#define VEKTERM_VERSION "0.3.0"
 
 #define DEFAULT_PORT "/dev/ttyGS0"
 #define DEFAULT_BAUD 2000000
@@ -61,6 +61,14 @@ static void app_on_frame(void *ctx, const vt_frame *frame)
 static void app_on_exit(void *ctx)
 {
     ((app_state *)ctx)->exit_seen = true;
+}
+
+/* A keepalive carries no geometry; the host tool just notes it so a stream
+ * inspection shows the sender is holding the link open. */
+static void app_on_keepalive(void *ctx)
+{
+    (void)ctx;
+    printf("keepalive\n");
 }
 
 /* Answer the HELLO capability probe by writing the descriptor back to the
@@ -148,6 +156,7 @@ static int run_selftest(const vt_options *opt)
     sink.on_frame = app_on_frame;
     sink.on_exit = app_on_exit;
     sink.on_query = app_on_query;
+    sink.on_keepalive = app_on_keepalive;
     vt_parser_init(&parser, sink);
 
     for (i = 0; i < sizeof words / sizeof words[0]; i++) {
@@ -296,6 +305,7 @@ int main(int argc, char **argv)
     sink.on_frame = app_on_frame;
     sink.on_exit = app_on_exit;
     sink.on_query = app_on_query;
+    sink.on_keepalive = app_on_keepalive;
     vt_parser_init(&parser, sink);
 
     signal(SIGINT, on_signal);

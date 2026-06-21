@@ -20,6 +20,15 @@ CC      ?= cc
 CSTD    ?= -std=c99
 WARN    ?= -Wall -Wextra -Wpedantic -Werror
 OPT     ?= -O2
+
+# Build identity baked into the baremetal splash (git tag/describe + short
+# commit). `git describe` carries the nearest tag plus commits-since/-dirty; the
+# short hash is shown beside it. Outside a git checkout (e.g. a release tarball)
+# fall back to placeholders. Override on the command line if needed.
+GIT_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo v0.0.0)
+GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+GIT_CFLAGS  := -DVT_GIT_VERSION='"$(GIT_VERSION)"' -DVT_GIT_COMMIT='"$(GIT_COMMIT)"'
+
 CFLAGS  ?= $(OPT) $(CSTD) $(WARN) -Isrc
 LDFLAGS ?=
 
@@ -147,6 +156,7 @@ BM_CFLAGS_$(1) := -Ofast -Isrc -fcommon \
 	-mfloat-abi=hard -nostartfiles $(2) \
 	$(3) -DFREESTANDING -DPITREX_DEBUG -DMHZ1000 -DLOADER_START=0x4000000 \
 	-DSETTINGS_DIR='"settings"' \
+	$(GIT_CFLAGS) \
 	$$(EXTRA_CFLAGS)
 BM_OBJS_$(1) := $$(addprefix $$(BMB_$(1)), baremetalEntry.o \
 	$$(addsuffix .o, $$(BM_LOADER_C) $$(BM_PITREX_C) $$(BM_VECTREX_C) $$(BM_APP)))

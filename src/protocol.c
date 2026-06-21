@@ -108,6 +108,16 @@ bool vt_is_hello(uint32_t word)
     return vt_word_flag(word) == VT_FLAG_CMD && (word & 0xFFu) == VT_CMD_HELLO;
 }
 
+uint32_t vt_encode_keepalive(void)
+{
+    return ((uint32_t)VT_FLAG_CMD << VT_FLAG_SHIFT) | VT_CMD_KEEPALIVE;
+}
+
+bool vt_is_keepalive(uint32_t word)
+{
+    return vt_word_flag(word) == VT_FLAG_CMD && (word & 0xFFu) == VT_CMD_KEEPALIVE;
+}
+
 void vt_encode_hello_descriptor(uint8_t out[VT_HELLO_LEN])
 {
     out[0] = VT_HELLO_MAGIC0; /* 'V' */

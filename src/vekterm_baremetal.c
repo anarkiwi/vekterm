@@ -73,11 +73,31 @@
 #define VT_SPLASH_BRIGHT 0x50
 #endif
 
-/* Stringize the configured baud so the splash can show the line settings an
- * operator must match on the sender, without any runtime int formatting. */
-#define VT_STR2(x) #x
-#define VT_STR(x) VT_STR2(x)
-#define VT_SPLASH_BAUD_LINE VT_STR(VT_UART_BAUD) " BAUD 8N1"
+/* Build identity shown on the splash. The Makefile injects the git tag/describe
+ * and short commit; off-target builds (the emulator) fall back to placeholders. */
+#ifndef VT_GIT_VERSION
+#define VT_GIT_VERSION "dev"
+#endif
+#ifndef VT_GIT_COMMIT
+#define VT_GIT_COMMIT "unknown"
+#endif
+
+/* Global inactivity timeout: with no new frame *or* keepalive for this long, the
+ * held frame is dropped and the receiver returns to the splash, so a stale image
+ * never lingers after a sender disconnects. A sender holding a static image keeps
+ * it alive cheaply with the CMD keepalive ping (see PROTOCOL-EXTENSIONS.md §11).
+ * Microseconds, against the 1 MHz system timer. */
+#ifndef VT_IDLE_TIMEOUT_US
+#define VT_IDLE_TIMEOUT_US 30000000u /* 30 s */
+#endif
+
+/* Baud rates the operator can cycle through from the splash with a Vectrex
+ * button, so a freshly flashed board can be matched to a sender without
+ * re-flashing. All are exact (0% divisor error) at core_freq=256 MHz; see the
+ * VT_UART_BAUD note above. The active rate is shown on the splash. */
+#ifndef VT_BAUD_OPTIONS
+#define VT_BAUD_OPTIONS {1280000u, 2000000u, 1000000u, 921600u, 500000u, 115200u}
+#endif
 
 /* Per-frame flow control. The receiver has no byte-level resync and the Pi
  * mini-UART has only an 8-byte FIFO, so the link must be lossless: vekterm sends
@@ -88,6 +108,21 @@
 #ifndef VT_SYNC_BYTE
 #define VT_SYNC_BYTE 0x06 /* ASCII ACK */
 #endif
+
+/* Once a sender has negotiated v2 (it sent the HELLO probe, so we know it is not
+ * a plain USB-DVG), the per-frame "ready" reply is replaced *wholesale* by a
+ * compact, fixed 5-byte timing record — no sync byte, no marker, no framing — so
+ * the sender can adapt its frame rate to how long the last frame took to draw.
+ * The record's arrival IS the readiness signal. This is NOT backward compatible
+ * within v2 by design; cross-version safety comes from negotiation, exactly like
+ * the EXT subtypes: a v1 (un-negotiated) peer keeps getting the plain
+ * VT_SYNC_BYTE, so the base DVG flow control is unchanged. Layout (big-endian):
+ *   [0..1] draw_us  u16   microseconds spent drawing the last frame
+ *   [2..3] vectors  u16   vectors in the last frame
+ *   [4]    flags    u8    bit0 overflow, bit1 idle (splash drawn) */
+#define VT_SYNC_FLAG_OVERFLOW 0x01u
+#define VT_SYNC_FLAG_IDLE 0x02u
+#define VT_SYNC_V2_LEN 5
 #ifndef VT_RX_TIMEOUT_US
 #define VT_RX_TIMEOUT_US 50000u
 #endif
@@ -111,7 +146,9 @@ typedef struct {
 static draw_seg g_draw[VT_MAX_PIPELINE];
 static int g_draw_count;
 static int g_have_frame;
-static volatile int g_new_frame; /* set by on_frame when a COMPLETE arrives */
+static int g_overflow;          /* last frame exceeded MAX_PIPELINE */
+static volatile int g_activity; /* set by on_frame/on_keepalive: sender is alive */
+static volatile int g_peer_v2;  /* set by on_query: the peer negotiated v2 */
 
 static void on_frame(void *ctx, const vt_frame *frame)
 {
@@ -129,14 +166,24 @@ static void on_frame(void *ctx, const vt_frame *frame)
         d->z = (uint8_t)(s->brightness >> VT_BRIGHT_SHIFT);
     }
     g_draw_count = frame->count;
+    g_overflow = frame->overflow;
     g_have_frame = 1;
-    g_new_frame = 1;
+    g_activity = 1;
 }
 
 static void on_exit(void *ctx)
 {
     /* Baremetal has no OS to return to; keep holding the last frame. */
     (void)ctx;
+}
+
+/* A keepalive ping carries no geometry: it just proves the sender is still there
+ * so the idle timeout doesn't drop a (legitimately static) held frame. It breaks
+ * the receive wait like a frame would, so the next sync goes out promptly. */
+static void on_keepalive(void *ctx)
+{
+    (void)ctx;
+    g_activity = 1;
 }
 
 /* Answer the HELLO capability probe on the mini-UART TX so a sender can detect a
@@ -146,33 +193,98 @@ static void on_query(void *ctx)
     uint8_t descriptor[VT_HELLO_LEN];
     int i;
     (void)ctx;
+    /* A HELLO probe means the peer is a v2 sender: from now the per-frame reply
+     * carries the compact timing record instead of the bare sync byte. */
+    g_peer_v2 = 1;
     vt_encode_hello_descriptor(descriptor);
     for (i = 0; i < VT_HELLO_LEN; i++) {
         RPI_AuxMiniUartWrite(descriptor[i]);
     }
 }
 
+/* --- runtime text helpers (the splash now shows the live baud + git build) -- */
+
+/* Append v's decimal digits to buf at *pos (caller guarantees room, then NUL). */
+static void append_u32(char *buf, int *pos, uint32_t v)
+{
+    char tmp[10];
+    int n = 0;
+    if (v == 0) {
+        buf[(*pos)++] = '0';
+        return;
+    }
+    while (v > 0 && n < (int)sizeof tmp) {
+        tmp[n++] = (char)('0' + (v % 10u));
+        v /= 10u;
+    }
+    while (n > 0) {
+        buf[(*pos)++] = tmp[--n];
+    }
+}
+
+/* Append s to buf at *pos, upper-casing ASCII and stopping before cap-1 (the
+ * Vectrex BIOS font is uppercase-only; git output carries lowercase hex). */
+static void append_upper(char *buf, int *pos, const char *s, int cap)
+{
+    while (*s != '\0' && *pos < cap - 1) {
+        char c = *s++;
+        if (c >= 'a' && c <= 'z') {
+            c = (char)(c - 'a' + 'A');
+        }
+        buf[(*pos)++] = c;
+    }
+}
+
+/* Cycleable baud table and the active rate (shown on the splash, changed by a
+ * button press while idle — see handle_splash_buttons). */
+static const uint32_t g_baud_options[] = VT_BAUD_OPTIONS;
+#define VT_BAUD_COUNT ((int)(sizeof g_baud_options / sizeof g_baud_options[0]))
+static int g_baud_idx;
+static uint32_t g_cur_baud = VT_UART_BAUD;
+
 /* Until the first frame arrives (e.g. nothing is connected to the UART yet),
- * draw a static splash so the operator can see the receiver booted and is
- * waiting — a blank screen is indistinguishable from a dead board. The Vectrex
- * BIOS font is uppercase-only; coords are 8-bit, centred at 0,0 with +y up.
- * v_printString takes (x, y, string, textSize, brightness). */
-/* v_printString draws the Vectrex BIOS font at textSize*180-ish units per glyph
- * and positions at x*128; the default textSize 1-2 is ~2% of the screen, far too
- * small. These sizes fill the screen without overflowing the 16-char lines.
- * Tune with -DVT_SPLASH_TITLE_SIZE / -DVT_SPLASH_TEXT_SIZE if your display differs. */
+ * draw a splash so the operator can see the receiver booted, which build is
+ * running, the active line rate, and that a button changes it — a blank screen
+ * is indistinguishable from a dead board. The Vectrex BIOS font is
+ * uppercase-only; coords are 8-bit, centred at 0,0 with +y up.
+ * v_printString takes (x, y, string, textSize, brightness); it draws ~180 units
+ * per glyph at textSize and positions at x*128. Tune the sizes with
+ * -DVT_SPLASH_*_SIZE if your display differs. */
 #ifndef VT_SPLASH_TITLE_SIZE
-#define VT_SPLASH_TITLE_SIZE 8
+#define VT_SPLASH_TITLE_SIZE 6
 #endif
 #ifndef VT_SPLASH_TEXT_SIZE
-#define VT_SPLASH_TEXT_SIZE 4
+#define VT_SPLASH_TEXT_SIZE 3
+#endif
+#ifndef VT_SPLASH_VERSION_SIZE
+#define VT_SPLASH_VERSION_SIZE 2
+#endif
+#ifndef VT_SPLASH_HINT_SIZE
+#define VT_SPLASH_HINT_SIZE 2
 #endif
 
 static void draw_idle_splash(void)
 {
-    v_printString(-24, 30, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-40, -5, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-40, -40, VT_SPLASH_BAUD_LINE, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    char line[40];
+    int pos;
+
+    v_printString(-30, 56, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
+
+    pos = 0;
+    append_upper(line, &pos, VT_GIT_VERSION " ", (int)sizeof line);
+    append_upper(line, &pos, VT_GIT_COMMIT, (int)sizeof line);
+    line[pos] = '\0';
+    v_printString(-50, 28, line, VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
+
+    v_printString(-50, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+
+    pos = 0;
+    append_u32(line, &pos, g_cur_baud);
+    append_upper(line, &pos, " BAUD 8N1", (int)sizeof line);
+    line[pos] = '\0';
+    v_printString(-50, -24, line, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+
+    v_printString(-50, -52, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
 }
 
 static void draw_active_frame(void)
@@ -184,10 +296,65 @@ static void draw_active_frame(void)
     }
 }
 
+/* Switch the mini-UART (and the lossless RX ring) to a new line rate and start
+ * the word parser clean, so the splash baud cycler can match a sender's rate
+ * without re-flashing. */
+static void set_baud(vt_parser *parser, uint32_t baud)
+{
+    g_cur_baud = baud;
+    RPI_AuxMiniUartInit((int)baud, 8, VT_UART_CLOCK);
+    uart_rx_init();
+    uart_rx_flush();
+    vt_parser_resync(parser);
+}
+
+/* On the splash, any Vectrex button press cycles to the next baud in the table.
+ * Edge-detected (rising edges only) so one press steps once. No-op while a frame
+ * is held, so a button never disturbs an active stream. */
+static void handle_splash_buttons(vt_parser *parser)
+{
+    static uint8_t prev;
+    uint8_t now = v_readButtons();
+    uint8_t pressed = (uint8_t)(now & ~prev);
+    prev = now;
+    if (pressed != 0) {
+        g_baud_idx = (g_baud_idx + 1) % VT_BAUD_COUNT;
+        set_baud(parser, g_baud_options[g_baud_idx]);
+    }
+}
+
+/* Signal "ready for the next frame". A v1 (un-negotiated) peer gets the plain
+ * base-protocol sync byte. A negotiated v2 peer gets the compact fixed timing
+ * record instead (its arrival is the readiness signal), so it can adapt its
+ * frame rate to how long the receiver took to draw — see VT_SYNC_V2_LEN. */
+static void send_sync_reply(uint32_t draw_us, int vectors, uint8_t flags)
+{
+    uint8_t rec[VT_SYNC_V2_LEN];
+    uint32_t us, vc;
+    int i;
+
+    if (!g_peer_v2) {
+        RPI_AuxMiniUartWrite((char)VT_SYNC_BYTE); /* base DVG flow control */
+        return;
+    }
+    us = draw_us > 0xFFFFu ? 0xFFFFu : draw_us;
+    vc = vectors < 0 ? 0u : ((uint32_t)vectors > 0xFFFFu ? 0xFFFFu : (uint32_t)vectors);
+    rec[0] = (uint8_t)(us >> 8);
+    rec[1] = (uint8_t)(us & 0xFFu);
+    rec[2] = (uint8_t)(vc >> 8);
+    rec[3] = (uint8_t)(vc & 0xFFu);
+    rec[4] = flags;
+    for (i = 0; i < VT_SYNC_V2_LEN; i++) {
+        RPI_AuxMiniUartWrite((char)rec[i]);
+    }
+}
+
 int main(int argc, char **argv)
 {
     vt_parser parser;
     vt_sink sink;
+    uint32_t last_activity;
+    int i;
 
     (void)argc;
     (void)argv;
@@ -198,21 +365,31 @@ int main(int argc, char **argv)
     v_init();
     v_setRefresh(VT_REFRESH_HZ);
 
+    /* Start the baud cycler at the compile-time default if it is in the table. */
+    g_cur_baud = VT_UART_BAUD;
+    for (i = 0; i < VT_BAUD_COUNT; i++) {
+        if (g_baud_options[i] == VT_UART_BAUD) {
+            g_baud_idx = i;
+            break;
+        }
+    }
+
     /* Last line emitted at the boot-banner baud (921600), before the link
      * switches to the protocol rate. Seeing this on the console confirms init
      * completed and the draw loop is about to run (the splash is being drawn) —
      * useful for a bench test with no Vectrex or sender attached. */
-    printf("vekterm: init complete; entering draw loop, link -> %d baud\r\n", VT_UART_BAUD);
+    printf("vekterm: init complete; entering draw loop, link -> %u baud\r\n", g_cur_baud);
 
     /* kernelMain brought the mini-UART up at 921600 for the banner; switch it
      * to the protocol's line rate for incoming vector data. */
-    RPI_AuxMiniUartInit(VT_UART_BAUD, 8, VT_UART_CLOCK);
+    RPI_AuxMiniUartInit((int)g_cur_baud, 8, VT_UART_CLOCK);
     uart_rx_init(); /* interrupt-driven, lossless RX into a ring buffer */
 
     sink.ctx = NULL;
     sink.on_frame = on_frame;
     sink.on_exit = on_exit;
     sink.on_query = on_query;
+    sink.on_keepalive = on_keepalive;
     vt_parser_init(&parser, sink);
 
     /* Start each frame from a clean, byte-aligned state: the handshake means the
@@ -220,36 +397,62 @@ int main(int argc, char **argv)
      * the 921600->2M switch and re-aligns the word parser. */
     uart_rx_flush();
     vt_parser_resync(&parser);
-    RPI_AuxMiniUartWrite(VT_SYNC_BYTE); /* "ready" for the first frame */
+    last_activity = RPI_GetSystemTimer()->counter_lo;
+    send_sync_reply(0, 0, VT_SYNC_FLAG_IDLE); /* "ready" for the first frame */
     for (;;) {
-        /* Receive exactly one frame, then draw. With flow control the sender
-         * only transmits after our sync byte, so the draw never competes with
-         * the UART. Time out so the idle splash still refreshes with no sender. */
+        uint32_t now, draw_t0, draw_us;
+        uint8_t flags;
+
+        /* Receive exactly one frame (or a keepalive ping), then draw. With flow
+         * control the sender only transmits after our sync byte, so the draw
+         * never competes with the UART. Time out so the idle splash still
+         * refreshes, and so the inactivity timeout below is evaluated, with no
+         * sender connected. */
         uint32_t t0 = RPI_GetSystemTimer()->counter_lo;
         uint32_t spins = VT_RX_SPINS;
-        g_new_frame = 0;
-        while (!g_new_frame && --spins &&
+        g_activity = 0;
+        while (!g_activity && --spins &&
                (uint32_t)(RPI_GetSystemTimer()->counter_lo - t0) < VT_RX_TIMEOUT_US) {
             int b;
             uart_rx_poll(); /* drain the UART FIFO into the ring buffer */
-            while (!g_new_frame && (b = uart_rx_get()) >= 0) {
+            while (!g_activity && (b = uart_rx_get()) >= 0) {
                 uint8_t byte = (uint8_t)b;
                 vt_parser_feed(&parser, &byte, 1);
             }
         }
 
+        /* A new frame or a keepalive both count as the sender being alive. With
+         * neither for VT_IDLE_TIMEOUT_US, drop the held frame and fall back to
+         * the splash so a stale image never lingers after a disconnect. */
+        now = RPI_GetSystemTimer()->counter_lo;
+        if (g_activity) {
+            last_activity = now;
+        } else if (g_have_frame && (uint32_t)(now - last_activity) >= VT_IDLE_TIMEOUT_US) {
+            g_have_frame = 0;
+            g_draw_count = 0;
+            g_overflow = 0;
+        }
+
         v_WaitRecal();
         if (g_have_frame) {
+            draw_t0 = RPI_GetSystemTimer()->counter_lo;
             draw_active_frame();
+            draw_us = (uint32_t)(RPI_GetSystemTimer()->counter_lo - draw_t0);
         } else {
+            /* Idle: the splash is interactive — a button cycles the baud. */
+            handle_splash_buttons(&parser);
+            draw_t0 = RPI_GetSystemTimer()->counter_lo;
             draw_idle_splash();
+            draw_us = (uint32_t)(RPI_GetSystemTimer()->counter_lo - draw_t0);
         }
 
         /* Frame boundary: discard leftovers + re-align before asking for the
          * next frame, so a one-off byte slip can't desync the stream forever. */
         uart_rx_flush();
         vt_parser_resync(&parser);
-        RPI_AuxMiniUartWrite(VT_SYNC_BYTE); /* consumed; ready for the next frame */
+        flags = (uint8_t)((g_overflow ? VT_SYNC_FLAG_OVERFLOW : 0u) |
+                          (g_have_frame ? 0u : VT_SYNC_FLAG_IDLE));
+        send_sync_reply(draw_us, g_draw_count, flags); /* ready for the next frame */
     }
     return 0;
 }
