@@ -10,9 +10,10 @@
  *   --frame <file.bin>  decode a USB-DVG/vecterm byte stream (the real
  *                       protocol.c/frame.c parser) and draw the frame.
  *
- * The drawing itself — v_init(), v_printString(), v_directDraw32(), the VIA
- * register macros, the vector font — is libpitrex's unmodified code; only the
- * hardware underneath it is the model. This is the proof that vekterm boots to
+ * The drawing itself — v_init(), v_directDraw32(), the VIA register macros — is
+ * libpitrex's unmodified code, and the splash text goes through vekterm's own
+ * Hershey font (vt_draw_string, src/font.c) exactly as on the real target; only
+ * the hardware underneath is the model. This is the proof that vekterm boots to
  * a splash and draws frames, with no Pi, no QEMU and no Vectrex.
  */
 #include <stdint.h>
@@ -21,6 +22,7 @@
 #include <string.h>
 
 #include "via_vectrex.h"
+#include "font.h"
 #include "frame.h"
 #include "protocol.h"
 
@@ -29,7 +31,6 @@ void v_init(void);
 void v_setName(char *name);
 void v_setRefresh(int hz);
 void v_WaitRecal(void);
-void v_printString(int8_t x, int8_t y, char *string, uint8_t textSize, uint8_t brightness);
 void v_directDraw32(int32_t xStart, int32_t yStart, int32_t xEnd, int32_t yEnd, uint8_t brightness);
 extern int usePipeline;
 
@@ -163,11 +164,11 @@ static void draw_splash(void)
 {
     /* mirrors vekterm_baremetal.c:draw_idle_splash() (static strings here: the
      * git build id and live baud are runtime values on the real target). */
-    v_printString(-58, 64, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-58, 28, "DEV UNKNOWN", VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-58, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-58, -28, VT_SPLASH_BAUD_LINE, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
-    v_printString(-58, -58, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, 64, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, 28, "dev unknown", VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, -28, VT_SPLASH_BAUD_LINE, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    vt_draw_string(-58, -58, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
 }
 
 static vt_frame g_frame;

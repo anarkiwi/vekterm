@@ -8,7 +8,7 @@ lot of unproductive on-hardware UART debugging.
 This directory ([`tools/emu`](../tools/emu)) removes the hardware from the loop.
 It runs vekterm's **real** draw path — the vendored libpitrex
 [`vectrexInterface.c`](../third_party/libpitrex/vectrex/vectrexInterface.c), the
-VIA register macros, the vector font, and the real
+VIA register macros, vekterm's [Hershey vector font](../src/font.c), and the real
 [`protocol.c`](../src/protocol.c)/[`frame.c`](../src/frame.c) parser — on top of a
 **software model of the 6522 VIA and the Vectrex analog vector generator**. Every
 beam move the code makes is reconstructed into line segments and rendered to an
@@ -17,7 +17,7 @@ image: what the Vectrex CRT *would* show. No Pi, no QEMU, no Vectrex.
 ```
    vekterm's real draw code                      this emulator
  ┌───────────────────────────┐   vectrexwrite() ┌──────────────────────────┐
- │ v_printString / v_directDraw32              │ │ software 6522 VIA +       │
+ │ vt_draw_string / v_directDraw32             │ │ software 6522 VIA +       │
  │ → SET_YSH16/SET_XSH16/T1/CB2  ─────────────▶ │ Vectrex integrators       │ → segments → PPM/PNG
  │   (libpitrex, unmodified)   │  vectrexread() │ (via_vectrex.c)           │
  └───────────────────────────┘ ◀───────────────└──────────────────────────┘
@@ -117,7 +117,7 @@ the real hardware draws with.
 the real protocol parser and the real draw code, and asserts the reconstruction
 comes back as four segments whose corners sit within 1% of ±5000. A square in →
 a square out, at the right coordinates, is the proof the VIA model is correct; the
-splash then renders the vector font through the same path.
+splash then renders the Hershey vector font through the same per-segment path.
 
 ## What it can and can't prove
 

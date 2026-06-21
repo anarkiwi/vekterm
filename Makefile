@@ -142,7 +142,7 @@ BM_PITREX_C  := bcm2835 pitrexio-gpio
 BM_VECTREX_C := vectrexInterface osWrapper baremetalUtil
 # The baremetal runtime: C files compiled as C (only baremetalEntry.S is asm).
 BM_LOADER_C  := bareMetalMain cstubs rpi-armtimer rpi-aux rpi-gpio rpi-interrupts rpi-systimer
-BM_APP       := protocol frame uart_rx vekterm_baremetal
+BM_APP       := protocol frame uart_rx font vekterm_baremetal
 
 baremetal:  kernel.img
 baremetal7: kernel7.img

@@ -34,9 +34,10 @@ echo "==> compiling end-to-end emulator"
 "$CC" "${CF[@]}" -c "$here/via_vectrex.c"           -o "$out/via.o"
 "$CC" "${CF[@]}" -c "$root/src/protocol.c"          -o "$out/protocol.o"
 "$CC" "${CF[@]}" -c "$root/src/frame.c"             -o "$out/frame.o"
+"$CC" "${CF[@]}" -c "$root/src/font.c"              -o "$out/font.o"
 "$CC" "${CF[@]}" -Dmain=vekterm_main -c "$root/src/vekterm_baremetal.c" -o "$out/vkmain.o"
 "$CC" "${CF[@]}" -c "$here/emu_vekterm.c"           -o "$out/emu_vk.o"
-"$CC" "$out/vi.o" "$out/via.o" "$out/protocol.o" "$out/frame.o" "$out/vkmain.o" "$out/emu_vk.o" \
+"$CC" "$out/vi.o" "$out/via.o" "$out/protocol.o" "$out/frame.o" "$out/font.o" "$out/vkmain.o" "$out/emu_vk.o" \
     -lutil -lpthread -lm -o "$out/emu-vekterm"
 
 echo "==> running (real pyvterm --flow-control -> real vekterm)"
