@@ -46,7 +46,7 @@ Every command is a single **32-bit word, big-endian**. The top three bits
 | `XY` | `0x2` | `blank=1` move the beam; `blank=0` draw to the point |
 | `QUALITY` | `0x3` | Render hint — ignored (geometry is unaffected) |
 | `FRAME` | `0x4` | Start a new frame; remember its beam-travel length |
-| `CMD` | `0x5` | Device command channel — answers the v2 `HELLO` probe (below); other subcommands ignored |
+| `CMD` | `0x5` | Device command channel — answers the v2 `HELLO` probe (below), resets the idle timeout on a `keepalive` ping (§6); other subcommands ignored |
 | `EXT` | `0x6` | v2 extensions container — decoded (`HEIGHTFIELD`/`POLYLINE`); unknown subtypes skipped by length |
 | `EXIT` | `0x7` | Session over |
 
@@ -124,6 +124,36 @@ emits and that [`tests/test_frame.c`](../tests/test_frame.c) feeds the parser:
 | `COMPLETE` | `00 00 00 00` | end of frame | publish frame |
 
 Run it yourself: `./vekterm --selftest`.
+
+## 6. Receiver behaviour: splash, baud, idle timeout, timing
+
+These are baremetal-receiver behaviours (`src/vekterm_baremetal.c`), layered on
+top of the wire protocol above.
+
+* **Boot splash.** Until the first frame arrives, vekterm draws a splash so a
+  blank screen isn't mistaken for a dead board. It shows the build identity (the
+  git tag/describe + short commit, injected at compile time by the Makefile), the
+  active line rate, and a hint that a button changes it.
+* **Baud cycling.** While the splash is showing, any Vectrex button press cycles
+  the data-link baud through a compile-time table (`VT_BAUD_OPTIONS`) and re-inits
+  the mini-UART, so a freshly flashed board can be matched to a sender's rate
+  without re-flashing. It is a no-op while a frame is held, so a button never
+  disturbs an active stream.
+* **Idle timeout.** With no new frame *and* no `keepalive` (§2.1, a `CMD` `'K'`
+  ping) for `VT_IDLE_TIMEOUT_US` (30 s), vekterm drops the held frame and returns
+  to the splash. A sender holding a static image (frame suppression) keeps it
+  alive with periodic keepalives.
+* **Timing in the sync reply.** Once a sender has negotiated v2 (it issued the
+  `HELLO` probe), the per-frame "ready" reply switches *wholesale* from the
+  `0x06` sync byte (§1) to a compact fixed 5-byte record — `draw_us` (u16),
+  `vectors` (u16), flags (bit0 overflow, bit1 idle) — whose arrival is itself the
+  readiness signal. A sender uses `draw_us` (the analog beam time the frame costs
+  per refresh) to adapt its frame rate to scene complexity. This is an efficient,
+  *not* back-compatible, v2 change: an un-negotiated (v1) sender keeps getting the
+  plain `0x06`, so the base DVG flow control is unchanged. The full specification
+  is in pyvterm's
+  [`docs/PROTOCOL-EXTENSIONS.md`](https://github.com/anarkiwi/pyvterm/blob/main/docs/PROTOCOL-EXTENSIONS.md)
+  §§11–12.
 
 ## References
 

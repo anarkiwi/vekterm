@@ -312,10 +312,13 @@ void vt_parser_feed_word(vt_parser *parser, uint32_t word)
         break;
     }
     case VT_FLAG_CMD:
-        /* Device command channel.  The only command we answer is the HELLO
-         * capability probe; the backend writes the descriptor in on_query. */
+        /* Device command channel.  HELLO is answered with the capability
+         * descriptor (on_query); keepalive is a null ping that resets the
+         * receiver's idle timeout without changing the drawn frame. */
         if (vt_is_hello(word) && parser->sink.on_query != NULL) {
             parser->sink.on_query(parser->sink.ctx);
+        } else if (vt_is_keepalive(word) && parser->sink.on_keepalive != NULL) {
+            parser->sink.on_keepalive(parser->sink.ctx);
         }
         break;
     case VT_FLAG_QUALITY: /* Render hint: no effect on the decoded geometry. */

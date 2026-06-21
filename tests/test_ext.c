@@ -17,6 +17,7 @@ typedef struct {
     vt_frame frames[4];
     int nframes;
     int queries;
+    int keepalives;
 } recorder;
 
 static recorder g_rec;
@@ -35,6 +36,11 @@ static void rec_on_query(void *ctx)
     ((recorder *)ctx)->queries++;
 }
 
+static void rec_on_keepalive(void *ctx)
+{
+    ((recorder *)ctx)->keepalives++;
+}
+
 static vt_sink recording_sink(void)
 {
     vt_sink sink;
@@ -43,6 +49,7 @@ static vt_sink recording_sink(void)
     sink.on_frame = rec_on_frame;
     sink.on_exit = NULL;
     sink.on_query = rec_on_query;
+    sink.on_keepalive = rec_on_keepalive;
     return sink;
 }
 
@@ -249,6 +256,23 @@ static void test_hello_probe_triggers_query(void)
     VT_CHECK_EQ(g_rec.queries, 1);
 }
 
+static void test_keepalive_triggers_callback(void)
+{
+    vt_parser p;
+    uint32_t ka = vt_encode_keepalive();
+    vt_parser_init(&p, recording_sink());
+    VT_CHECK(vt_is_keepalive(ka));
+    VT_CHECK(!vt_is_hello(ka)); /* keepalive and HELLO are distinct CMDs */
+    feed_word(&p, ka);
+    VT_CHECK_EQ(g_rec.keepalives, 1);
+    VT_CHECK_EQ(g_rec.queries, 0);
+    /* A keepalive carries no geometry and starts no frame. */
+    VT_CHECK_EQ(g_rec.nframes, 0);
+    /* HELLO must not be mistaken for a keepalive. */
+    feed_word(&p, ((uint32_t)VT_FLAG_CMD << VT_FLAG_SHIFT) | VT_CMD_HELLO);
+    VT_CHECK_EQ(g_rec.keepalives, 1);
+}
+
 static void test_hello_descriptor_bytes(void)
 {
     uint8_t d[VT_HELLO_LEN];
@@ -277,6 +301,7 @@ static void run_all(void)
     VT_RUN(test_unknown_subtype_is_skipped_in_alignment);
     VT_RUN(test_oversized_payload_is_drained_and_flagged);
     VT_RUN(test_hello_probe_triggers_query);
+    VT_RUN(test_keepalive_triggers_callback);
     VT_RUN(test_hello_descriptor_bytes);
 }
 

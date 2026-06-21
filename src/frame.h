@@ -52,6 +52,7 @@ typedef struct {
     void (*on_frame)(void *ctx, const vt_frame *frame); /* COMPLETE          */
     void (*on_exit)(void *ctx);                         /* EXIT              */
     void (*on_query)(void *ctx);                        /* CMD HELLO probe   */
+    void (*on_keepalive)(void *ctx);                    /* CMD keepalive ping */
 } vt_sink;
 
 /* Streaming decoder state. */
