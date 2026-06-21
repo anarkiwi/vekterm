@@ -94,9 +94,15 @@ format:
 format-check:
 	clang-format --dry-run --Werror $(FORMAT_FILES)
 
-# Build everything in Docker and export the artifacts to ./out.
+# Build everything in Docker and export the artifacts to ./out. .git is excluded
+# from the build context, so resolve the build identity here on the host and pass
+# it in as build args — otherwise the splash inside the image falls back to
+# v0.0.0/unknown (see Dockerfile).
 docker:
-	docker build --target artifacts --output type=local,dest=out .
+	docker build --target artifacts \
+		--build-arg GIT_VERSION="$(GIT_VERSION)" \
+		--build-arg GIT_COMMIT="$(GIT_COMMIT)" \
+		--output type=local,dest=out .
 	@echo "exported out/kernel.img, out/kernel7.img and out/vekterm.img"
 
 # ---- baremetal build (the deployable PiTrex kernel images) ---------------

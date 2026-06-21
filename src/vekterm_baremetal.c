@@ -251,16 +251,16 @@ static uint32_t g_cur_baud = VT_UART_BAUD;
  * per glyph at textSize and positions at x*128. Tune the sizes with
  * -DVT_SPLASH_*_SIZE if your display differs. */
 #ifndef VT_SPLASH_TITLE_SIZE
-#define VT_SPLASH_TITLE_SIZE 6
+#define VT_SPLASH_TITLE_SIZE 8
 #endif
 #ifndef VT_SPLASH_TEXT_SIZE
-#define VT_SPLASH_TEXT_SIZE 3
+#define VT_SPLASH_TEXT_SIZE 4
 #endif
 #ifndef VT_SPLASH_VERSION_SIZE
-#define VT_SPLASH_VERSION_SIZE 2
+#define VT_SPLASH_VERSION_SIZE 3
 #endif
 #ifndef VT_SPLASH_HINT_SIZE
-#define VT_SPLASH_HINT_SIZE 2
+#define VT_SPLASH_HINT_SIZE 3
 #endif
 
 static void draw_idle_splash(void)
@@ -268,23 +268,23 @@ static void draw_idle_splash(void)
     char line[40];
     int pos;
 
-    v_printString(-30, 56, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-58, 64, "VEKTERM", VT_SPLASH_TITLE_SIZE, VT_SPLASH_BRIGHT);
 
     pos = 0;
     append_upper(line, &pos, VT_GIT_VERSION " ", (int)sizeof line);
     append_upper(line, &pos, VT_GIT_COMMIT, (int)sizeof line);
     line[pos] = '\0';
-    v_printString(-50, 28, line, VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-58, 28, line, VT_SPLASH_VERSION_SIZE, VT_SPLASH_BRIGHT);
 
-    v_printString(-50, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-58, 2, "WAITING FOR DATA", VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
 
     pos = 0;
     append_u32(line, &pos, g_cur_baud);
     append_upper(line, &pos, " BAUD 8N1", (int)sizeof line);
     line[pos] = '\0';
-    v_printString(-50, -24, line, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-58, -28, line, VT_SPLASH_TEXT_SIZE, VT_SPLASH_BRIGHT);
 
-    v_printString(-50, -52, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
+    v_printString(-58, -58, "BTN: CYCLE BAUD", VT_SPLASH_HINT_SIZE, VT_SPLASH_BRIGHT);
 }
 
 static void draw_active_frame(void)

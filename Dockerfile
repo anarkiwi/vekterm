@@ -36,7 +36,13 @@ RUN make check
 #    vekterm.img. Calibrate via --build-arg VEKTERM_CFLAGS='-DVT_...'.
 ARG RPI_FW_REF=stable
 ARG VEKTERM_CFLAGS=
-RUN RPI_FW_REF="${RPI_FW_REF}" make image EXTRA_CFLAGS="${VEKTERM_CFLAGS}"
+# Build identity for the splash. .git is not in the build context (see
+# .dockerignore), so `git describe` inside the image would fall back to v0.0.0.
+# The caller (`make docker`) injects the host's tag/commit instead.
+ARG GIT_VERSION=v0.0.0
+ARG GIT_COMMIT=unknown
+RUN RPI_FW_REF="${RPI_FW_REF}" make image EXTRA_CFLAGS="${VEKTERM_CFLAGS}" \
+        GIT_VERSION="${GIT_VERSION}" GIT_COMMIT="${GIT_COMMIT}"
 
 # ---- export stage: nothing but the artifacts ----------------------------
 FROM scratch AS artifacts
