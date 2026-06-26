@@ -63,6 +63,22 @@ extern unsigned int MAX_USED_STRENGTH;
 #define VT_FORCE_FIX_SIZE 256 /* PL_BASE_FORCE_USE_FIX_SIZE in vectrexInterface.h */
 #define VT_FONT_MINSCALE 5    /* MINSCALE in vectrexInterface.h */
 
+/* Force an integrator re-zero before a stroke. The Vectrex integrators drift a
+ * little with every vector, and libpitrex tracks the *intended* cursor (not the
+ * actual drifted beam), so the error only clears on a true zero. In the pipeline
+ * a zero is otherwise thrown in only when a reposition move exceeds
+ * resetToZeroDifMax (4000 units): the splash's between-line jumps clear that, but
+ * a line's between-glyph advances (~400..1000 units) never do, so drift compounds
+ * left-to-right across each line and the baseline steps downward. Re-zeroing once
+ * per glyph re-references every letter to its true absolute position, bounding the
+ * drift to a single glyph's worth of vectors. PL_BASE_FORCE_ZERO is the per-vector
+ * flag the pipeline honours for this. Set VT_FONT_ZERO_EVERY to re-zero every Nth
+ * glyph instead (larger N = fewer zeros, less flicker, but more residual slant). */
+#define VT_FORCE_ZERO 1 /* PL_BASE_FORCE_ZERO in vectrexInterface.h */
+#ifndef VT_FONT_ZERO_EVERY
+#define VT_FONT_ZERO_EVERY 1
+#endif
+
 /* Integrator units per font unit, per `size` step. The glyph grid is 8 units
  * tall; 21 puts a size-8 capital at ~8*8*21 ~= 1344 units tall, matching the old
  * splash title height so existing VT_SPLASH_*_SIZE values carry over unchanged.
@@ -97,11 +113,14 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
         fixed = VT_FONT_MINSCALE;
     currentScale = (unsigned short)fixed;
 
+    unsigned glyph_idx = 0;
     for (; *s != '\0'; s++) {
         unsigned char c = (unsigned char)*s;
         const vfont_glyph_t *g;
         int32_t prevx = 0, prevy = 0;
         int pen_up = 1;
+        /* Re-zero on this glyph's first stroke to bound accumulated drift. */
+        int glyph_zero = (VT_FONT_ZERO_EVERY > 0) && (glyph_idx++ % VT_FONT_ZERO_EVERY == 0);
         int i;
 
         if (c >= 'a' && c <= 'z')
@@ -121,8 +140,14 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
             }
             sx = penx + (int32_t)hx * mul;
             sy = baseY + (int32_t)hy * mul;
-            if (!pen_up)
-                v_directDraw32Hinted(prevx, prevy, sx, sy, brightness, forced);
+            if (!pen_up) {
+                int f = forced;
+                if (glyph_zero) {
+                    f |= VT_FORCE_ZERO; /* first drawn stroke re-references the glyph */
+                    glyph_zero = 0;
+                }
+                v_directDraw32Hinted(prevx, prevy, sx, sy, brightness, f);
+            }
             pen_up = 0;
             prevx = sx;
             prevy = sy;
