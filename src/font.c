@@ -13,11 +13,11 @@
  * points of straight segments on a 4-wide x 8-tall grid, baseline at y=0, +y up.
  *
  * The original .i data is relative (pattern, dy, dx) deltas blown up by a
- * constant; tools/.../conv.py flattens it to absolute (x, y) points with a
- * (-1, -1) pen-up sentinel — the format this renderer already consumed. Only
- * uppercase + digits + a few symbols exist (lowercase folds to uppercase at draw
- * time, which suits the all-caps splash and its hex build id). ':' and '-' are
- * hand-added in the same grid; see conv.py.
+ * constant; tools/font/gen_font.py flattens it to absolute (x, y) points with a
+ * (-1, -1) pen-up sentinel into src/font_data.i. Only uppercase + digits + a few
+ * symbols exist (lowercase folds to uppercase at draw time, which suits the
+ * all-caps splash and its hex build id). ':' and '-' are hand-added in the same
+ * grid; see gen_font.py.
  *
  * Renderer: vt_draw_string scales each point into the Vectrex integrator range
  * and draws the whole string at ONE fixed integrator scale (the optimal scale of
@@ -27,14 +27,13 @@
  */
 #include "font.h"
 
-/* v_directDraw32 lives in the vendored libpitrex (vectrexInterface.c). Declared
- * locally so this file needs neither the VIA register macros (baremetal) nor the
- * full interface header (the off-target emulator declares it the same way). */
-void v_directDraw32(int32_t xStart, int32_t yStart, int32_t xEnd, int32_t yEnd, uint8_t brightness);
-
-/* v_directDraw32Hinted is v_directDraw32 with a per-call `force` word stamped onto
- * the pipeline vector. libpitrex's own v_printString draws glyph strokes this way
- * (passing commonHints | PL_BASE_FORCE_USE_FIX_SIZE); we mirror it exactly. */
+/* The stroke draw primitive lives in the vendored libpitrex (vectrexInterface.c).
+ * Declared locally so this file needs neither the VIA register macros (baremetal)
+ * nor the full interface header (the off-target emulator declares it the same
+ * way). v_directDraw32Hinted is the base v_directDraw32 with a per-call `force`
+ * word stamped onto the pipeline vector; libpitrex's own v_printString draws
+ * glyph strokes this way (passing commonHints | PL_BASE_FORCE_USE_FIX_SIZE), and
+ * we mirror it exactly. */
 void v_directDraw32Hinted(int32_t xStart, int32_t yStart, int32_t xEnd, int32_t yEnd,
                           uint8_t brightness, int forced);
 
