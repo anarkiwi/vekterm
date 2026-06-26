@@ -31,6 +31,38 @@
  * full interface header (the off-target emulator declares it the same way). */
 void v_directDraw32(int32_t xStart, int32_t yStart, int32_t xEnd, int32_t yEnd, uint8_t brightness);
 
+/* Why text needs fixed-dwell drawing — the heart of the "still curved" fix.
+ *
+ * v_directDraw32 sizes every stroke with SET_OPTIMAL_SCALE: scale (the integrator
+ * run-time, a T1 count) = max(|dx|,|dy|)/MAX_USED_STRENGTH, floored at MINSCALE=5.
+ * That is ideal for the long vectors of a received frame, but a glyph stroke is
+ * short — a size-3 hint stroke is a few hundred integrator units, so it sizes to
+ * scale ~5. The integrators need a fixed ~15-cycle settling time per draw
+ * (SCALETOTAL_OFFSET); when the run-time is only ~5, settling dominates the
+ * stroke and bends it. Long frame vectors hide that overhead; short text strokes
+ * can't — which is exactly why frames look straight and text doesn't.
+ *
+ * The Vectrex BIOS and games (e.g. Vectorblade's vectorString) avoid this by
+ * drawing text at a FIXED dwell, not an optimal one: every stroke runs for the
+ * same longer time, so the settling overhead is a small, constant fraction and
+ * the line stays straight. Length is then carried by the per-axis DAC slope
+ * (delta/dwell) instead of by run-time. We do the same by setting a fixed
+ * currentScale and flagging PL_BASE_FORCE_USE_FIX_SIZE on the pipeline (libpitrex
+ * falls back to optimal only if a stroke is so long the DAC would overflow 127 —
+ * never the case for glyphs). These two globals live in vectrexInterface.c. */
+extern int commonHints;
+extern unsigned short currentScale;
+#define VT_FORCE_FIX_SIZE 256 /* PL_BASE_FORCE_USE_FIX_SIZE in vectrexInterface.h */
+
+/* Fixed integrator dwell per stroke, in T1 counts per `size` step. The dwell is
+ * size-proportional so the DAC slope (and thus stroke weight) is the same at
+ * every text size. ~13 keeps even the smallest splash text (size 3 -> dwell ~39)
+ * well clear of the ~15-cycle settling overhead while leaving DAC headroom for
+ * the tallest strokes. Override with -DVT_FONT_DWELL to retune on hardware. */
+#ifndef VT_FONT_DWELL
+#define VT_FONT_DWELL 13
+#endif
+
 /* Integrator units per font unit, per `size` step. The glyph grid is 8 units
  * tall; 21 puts a size-8 capital at ~8*8*21 ~= 1344 units tall, matching the old
  * splash title height so existing VT_SPLASH_*_SIZE values carry over unchanged.
@@ -53,6 +85,14 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
     int32_t penx = (int32_t)x * VT_FONT_POS;
     int32_t baseY = (int32_t)y * VT_FONT_POS;
     int32_t mul = (int32_t)size * VT_FONT_SCALE;
+
+    /* Draw every stroke at a fixed dwell instead of per-stroke optimal scale, so
+     * short strokes stay straight (see the commentary above). Saved/restored so
+     * received frames keep their own optimal-scale drawing. */
+    int saved_hints = commonHints;
+    unsigned short saved_scale = currentScale;
+    commonHints |= VT_FORCE_FIX_SIZE;
+    currentScale = (unsigned short)((size ? size : 1) * VT_FONT_DWELL);
 
     for (; *s != '\0'; s++) {
         unsigned char c = (unsigned char)*s;
@@ -86,4 +126,7 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
         }
         penx += (int32_t)g->width * mul;
     }
+
+    commonHints = saved_hints;
+    currentScale = saved_scale;
 }
