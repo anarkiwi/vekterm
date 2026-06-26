@@ -9,11 +9,12 @@
  * traced curves (O, S, a, e…) as many tiny chords, which the CRT renders as
  * wobble; small lines bowed and smeared. See src/font.c and src/font_data.i.
  *
- * Each stroke is emitted through v_directDraw32, the same per-segment draw path
- * the received frames use: every segment gets its own optimal integrator scale
- * (SET_OPTIMAL_SCALE), so strokes are timed to their own length and stay
- * straight. The font is uppercase + digits + a few symbols; lowercase folds to
- * uppercase at draw time (the splash is all-caps, including its hex build id).
+ * The whole string is drawn at ONE fixed integrator scale with fixed-size timing
+ * forced on every stroke — the way libpitrex's own v_printString draws text —
+ * rather than letting each short stroke pick its own scale, which makes the
+ * timing jump between a glyph's connected strokes and kink them into curves. The
+ * font is uppercase + digits + a few symbols; lowercase folds to uppercase at
+ * draw time (the splash is all-caps, including its hex build id).
  */
 #ifndef VEKTERM_FONT_H
 #define VEKTERM_FONT_H

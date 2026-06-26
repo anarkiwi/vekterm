@@ -20,9 +20,10 @@
  * hand-added in the same grid; see conv.py.
  *
  * Renderer: vt_draw_string scales each point into the Vectrex integrator range
- * and draws every stroke with v_directDraw32 — the same per-segment path the
- * received frames use, where each segment gets its own SET_OPTIMAL_SCALE so a
- * stroke is timed to its own length and stays straight; see font.h.
+ * and draws the whole string at ONE fixed integrator scale (the optimal scale of
+ * a full glyph cell), forcing PL_BASE_FORCE_USE_FIX_SIZE on every stroke — the
+ * way libpitrex's own v_printString draws text. A single shared timing keeps the
+ * connected strokes of a glyph from kinking; see vt_draw_string below and font.h.
  */
 #include "font.h"
 
@@ -31,37 +32,36 @@
  * full interface header (the off-target emulator declares it the same way). */
 void v_directDraw32(int32_t xStart, int32_t yStart, int32_t xEnd, int32_t yEnd, uint8_t brightness);
 
-/* Why text needs fixed-dwell drawing — the heart of the "still curved" fix.
- *
- * v_directDraw32 sizes every stroke with SET_OPTIMAL_SCALE: scale (the integrator
- * run-time, a T1 count) = max(|dx|,|dy|)/MAX_USED_STRENGTH, floored at MINSCALE=5.
- * That is ideal for the long vectors of a received frame, but a glyph stroke is
- * short — a size-3 hint stroke is a few hundred integrator units, so it sizes to
- * scale ~5. The integrators need a fixed ~15-cycle settling time per draw
- * (SCALETOTAL_OFFSET); when the run-time is only ~5, settling dominates the
- * stroke and bends it. Long frame vectors hide that overhead; short text strokes
- * can't — which is exactly why frames look straight and text doesn't.
- *
- * The Vectrex BIOS and games (e.g. Vectorblade's vectorString) avoid this by
- * drawing text at a FIXED dwell, not an optimal one: every stroke runs for the
- * same longer time, so the settling overhead is a small, constant fraction and
- * the line stays straight. Length is then carried by the per-axis DAC slope
- * (delta/dwell) instead of by run-time. We do the same by setting a fixed
- * currentScale and flagging PL_BASE_FORCE_USE_FIX_SIZE on the pipeline (libpitrex
- * falls back to optimal only if a stroke is so long the DAC would overflow 127 —
- * never the case for glyphs). These two globals live in vectrexInterface.c. */
-extern int commonHints;
-extern unsigned short currentScale;
-#define VT_FORCE_FIX_SIZE 256 /* PL_BASE_FORCE_USE_FIX_SIZE in vectrexInterface.h */
+/* v_directDraw32Hinted is v_directDraw32 with a per-call `force` word stamped onto
+ * the pipeline vector. libpitrex's own v_printString draws glyph strokes this way
+ * (passing commonHints | PL_BASE_FORCE_USE_FIX_SIZE); we mirror it exactly. */
+void v_directDraw32Hinted(int32_t xStart, int32_t yStart, int32_t xEnd, int32_t yEnd,
+                          uint8_t brightness, int forced);
 
-/* Fixed integrator dwell per stroke, in T1 counts per `size` step. The dwell is
- * size-proportional so the DAC slope (and thus stroke weight) is the same at
- * every text size. ~13 keeps even the smallest splash text (size 3 -> dwell ~39)
- * well clear of the ~15-cycle settling overhead while leaving DAC headroom for
- * the tallest strokes. Override with -DVT_FONT_DWELL to retune on hardware. */
-#ifndef VT_FONT_DWELL
-#define VT_FONT_DWELL 13
-#endif
+/* Why text needs ONE fixed scale — the actual "still curved" fix.
+ *
+ * v_directDraw32 sizes every stroke on its own with SET_OPTIMAL_SCALE (the
+ * integrator run-time = max(|dx|,|dy|)/MAX_USED_STRENGTH). That is right for a
+ * received frame's independent vectors, but a glyph is many *connected* strokes
+ * of differing lengths: giving each its own scale makes the integrator timing
+ * jump from stroke to stroke, and v_directDraw32's reposition/zero heuristics
+ * fire mid-glyph when the scale changes — so the joints kink and the letter
+ * curves. (Drawing at a *longer* fixed dwell, the previous attempt, only made it
+ * worse: it over-quantised the per-axis DAC and lengthened integration.)
+ *
+ * libpitrex's own v_printString — the routine its menus use — instead picks ONE
+ * scale for the whole string: the optimal scale of a full character cell
+ * (SET_OPTIMAL_SCALE(120*SCALEFONT,...)), then draws every stroke with
+ * PL_BASE_FORCE_USE_FIX_SIZE so they all share that timing. Constant timing means
+ * no per-stroke scale jumps and no mid-glyph zeroing, so connected strokes stay
+ * straight; stroke length is carried by the per-axis DAC slope (delta/scale). We
+ * do the same: fix currentScale to the optimal scale of our 8-unit-tall cell and
+ * force fixed size on every stroke. These globals live in vectrexInterface.c. */
+extern unsigned short currentScale;
+extern int commonHints;
+extern unsigned int MAX_USED_STRENGTH;
+#define VT_FORCE_FIX_SIZE 256 /* PL_BASE_FORCE_USE_FIX_SIZE in vectrexInterface.h */
+#define VT_FONT_MINSCALE 5    /* MINSCALE in vectrexInterface.h */
 
 /* Integrator units per font unit, per `size` step. The glyph grid is 8 units
  * tall; 21 puts a size-8 capital at ~8*8*21 ~= 1344 units tall, matching the old
@@ -86,13 +86,16 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
     int32_t baseY = (int32_t)y * VT_FONT_POS;
     int32_t mul = (int32_t)size * VT_FONT_SCALE;
 
-    /* Draw every stroke at a fixed dwell instead of per-stroke optimal scale, so
-     * short strokes stay straight (see the commentary above). Saved/restored so
-     * received frames keep their own optimal-scale drawing. */
-    int saved_hints = commonHints;
+    /* One fixed scale for the whole string = optimal scale of a full-height
+     * (8-unit) glyph stroke, exactly as libpitrex's v_printString does. Every
+     * stroke is then drawn with PL_BASE_FORCE_USE_FIX_SIZE so they share this
+     * timing and connected strokes don't kink (see the commentary above). */
+    int forced = commonHints | VT_FORCE_FIX_SIZE;
     unsigned short saved_scale = currentScale;
-    commonHints |= VT_FORCE_FIX_SIZE;
-    currentScale = (unsigned short)((size ? size : 1) * VT_FONT_DWELL);
+    int32_t fixed = (8 * mul) / (int32_t)(MAX_USED_STRENGTH ? MAX_USED_STRENGTH : 1);
+    if (fixed < VT_FONT_MINSCALE)
+        fixed = VT_FONT_MINSCALE;
+    currentScale = (unsigned short)fixed;
 
     for (; *s != '\0'; s++) {
         unsigned char c = (unsigned char)*s;
@@ -119,7 +122,7 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
             sx = penx + (int32_t)hx * mul;
             sy = baseY + (int32_t)hy * mul;
             if (!pen_up)
-                v_directDraw32(prevx, prevy, sx, sy, brightness);
+                v_directDraw32Hinted(prevx, prevy, sx, sy, brightness, forced);
             pen_up = 0;
             prevx = sx;
             prevy = sy;
@@ -127,6 +130,5 @@ void vt_draw_string(int8_t x, int8_t y, const char *s, uint8_t size, uint8_t bri
         penx += (int32_t)g->width * mul;
     }
 
-    commonHints = saved_hints;
     currentScale = saved_scale;
 }
