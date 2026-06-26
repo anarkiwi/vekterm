@@ -243,9 +243,9 @@ static uint32_t g_cur_baud = VT_UART_BAUD;
  * draw a splash so the operator can see the receiver booted, which build is
  * running, the active line rate, and that a button changes it — a blank screen
  * is indistinguishable from a dead board. Coords are 8-bit, centred at 0,0 with
- * +y up. vt_draw_string takes (x, y, string, size, brightness), drawing Hershey
- * Simplex vector text (mixed case) at the baseline-left (x, y). Tune the sizes
- * with -DVT_SPLASH_*_SIZE if your display differs. */
+ * +y up. vt_draw_string takes (x, y, string, size, brightness), drawing a
+ * Vectrex-native blocky stroke font (all-caps) at the baseline-left (x, y). Tune
+ * the sizes with -DVT_SPLASH_*_SIZE if your display differs. */
 #ifndef VT_SPLASH_TITLE_SIZE
 #define VT_SPLASH_TITLE_SIZE 8
 #endif
